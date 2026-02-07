@@ -11,6 +11,8 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--bg-primary:#f2f2f7;--bg-secondary:#ffffff;--bg-tertiary:#e5e5ea;--text-primary:#1c1c1e;--text-secondary:#3a3a3c;--text-tertiary:#8e8e93;--accent:#007aff;--accent-light:#e8f2ff;--green:#34c759;--orange:#ff9500;--red:#ff3b30;--purple:#af52de;--separator:rgba(60,60,67,0.12);--card-shadow:0 1px 3px rgba(0,0,0,0.08);--radius:12px;--radius-lg:16px;--safe-top:env(safe-area-inset-top,20px);--safe-bottom:env(safe-area-inset-bottom,0px);--tab-height:82px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -358,6 +360,318 @@ async function exportAll() {
 }
 
 // ==========================================
+// PDF PRINTING
+// ==========================================
+function showPrintModal() {
+  const today = new Date().toISOString().split('T')[0];
+  const moStart = A.month + '-01';
+  const moEnd = new Date(+A.month.split('-')[0], +A.month.split('-')[1], 0).toISOString().split('T')[0];
+  const html = `
+    <div class="form-group"><label class="form-label">Print Mode</label>
+      <select class="form-select" id="pr-mode">
+        <option value="all">All Clients — Monthly Summary</option>
+        <option value="single">Individual Client — Date Range</option>
+      </select></div>
+    <div id="pr-single-opts" style="display:none">
+      <div class="form-group"><label class="form-label">Client</label>
+        <select class="form-select" id="pr-client"><option value="">Select client</option>${A.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-input" id="pr-start" value="${moStart}"></div>
+        <div class="form-group"><label class="form-label">End Date</label><input type="date" class="form-input" id="pr-end" value="${moEnd}"></div>
+      </div>
+    </div>
+    <div id="pr-all-opts">
+      <div class="form-group"><label class="form-label">Month</label><input type="month" class="form-input" id="pr-month" value="${A.month}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Include</label>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:15px"><input type="checkbox" id="pr-inc-notes" checked> Session Notes</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:15px"><input type="checkbox" id="pr-inc-budget" checked> Budget Summary</label>
+      </div></div>`;
+
+  const m = showModal('Print Records', html, async (ov) => {
+    const mode = ov.querySelector('#pr-mode').value;
+    const incNotes = ov.querySelector('#pr-inc-notes').checked;
+    const incBudget = ov.querySelector('#pr-inc-budget').checked;
+    if (mode === 'single') {
+      const cid = ov.querySelector('#pr-client').value;
+      if (!cid) throw new Error('Select a client');
+      const start = ov.querySelector('#pr-start').value;
+      const end = ov.querySelector('#pr-end').value;
+      if (!start || !end) throw new Error('Select date range');
+      generateClientPDF(cid, start, end, incNotes, incBudget);
+    } else {
+      const mo = ov.querySelector('#pr-month').value;
+      if (!mo) throw new Error('Select a month');
+      generateAllClientsPDF(mo, incNotes, incBudget);
+    }
+    toast('PDF generated');
+  }, 'Generate PDF');
+
+  // Toggle single/all options
+  const modeSelect = m.querySelector('#pr-mode');
+  modeSelect.addEventListener('change', () => {
+    const isSingle = modeSelect.value === 'single';
+    m.querySelector('#pr-single-opts').style.display = isSingle ? '' : 'none';
+    m.querySelector('#pr-all-opts').style.display = isSingle ? 'none' : '';
+  });
+}
+
+function pdfHeader(doc, title, subtitle) {
+  const pw = doc.internal.pageSize.getWidth();
+  // Blue header bar
+  doc.setFillColor(0, 122, 255);
+  doc.rect(0, 0, pw, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text(title, 14, 12);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(subtitle, 14, 20);
+  // Right side: generated date
+  doc.setFontSize(8);
+  doc.text('Generated: ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), pw - 14, 20, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+  return 34;
+}
+
+function pdfSectionTitle(doc, y, text) {
+  const pw = doc.internal.pageSize.getWidth();
+  doc.setFillColor(242, 242, 247);
+  doc.rect(14, y - 5, pw - 28, 9, 'F');
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(80, 80, 80);
+  doc.text(text, 16, y + 1);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'normal');
+  return y + 10;
+}
+
+function generateClientPDF(cid, startDate, endDate, incNotes, incBudget) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+  const c = A.clients.find(x => x.id === cid);
+  if (!c) return;
+
+  const recs = A.records.filter(r => r.client_id === cid && r.date >= startDate && r.date <= endDate).sort((a, b) => a.date.localeCompare(b.date));
+  const totalUnits = recs.reduce((s, r) => s + (r.units || 0), 0);
+  const totalMins = recs.reduce((s, r) => s + (r.minutes || 0), 0);
+
+  // Header
+  let y = pdfHeader(doc, c.name, 'Billing Records: ' + fmtDate(startDate) + ' — ' + fmtDate(endDate));
+
+  // Client info
+  y = pdfSectionTitle(doc, y, 'CLIENT INFORMATION');
+  doc.setFontSize(9);
+  const info = [
+    ['Client ID', c.client_ext_id || 'N/A'],
+    ['Date of Birth', c.dob ? fmtDate(c.dob) : 'N/A'],
+    ['Diagnosis', c.diagnosis || 'N/A'],
+    ['Waiver Type', c.waiver_type || 'N/A'],
+    ['Auth Number', c.auth_number || 'N/A'],
+    ['Monthly Budget', (c.monthly_budget_units || 0) + ' units (' + ((c.monthly_budget_units || 0) * 15) + ' min)'],
+  ];
+  info.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(label + ':', 16, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(val, 55, y);
+    y += 5;
+  });
+  y += 4;
+
+  // Budget bar if requested
+  if (incBudget && c.monthly_budget_units) {
+    y = pdfSectionTitle(doc, y, 'BUDGET SUMMARY');
+    const budget = c.monthly_budget_units;
+    const pct = Math.min(Math.round(totalUnits / budget * 100), 100);
+    doc.setFontSize(9);
+    doc.text(`Used: ${totalUnits} / ${budget} units (${pct}%)   |   Remaining: ${budget - totalUnits} units`, 16, y);
+    y += 5;
+    // Draw progress bar
+    const barW = 160, barH = 4;
+    doc.setFillColor(229, 229, 234);
+    doc.roundedRect(16, y, barW, barH, 2, 2, 'F');
+    const fillColor = pct >= 90 ? [255, 59, 48] : pct >= 70 ? [255, 149, 0] : [52, 199, 89];
+    doc.setFillColor(...fillColor);
+    doc.roundedRect(16, y, barW * (pct / 100), barH, 2, 2, 'F');
+    y += 12;
+  }
+
+  // Records table
+  y = pdfSectionTitle(doc, y, `SESSION RECORDS (${recs.length} sessions · ${totalUnits} units · ${totalMins} min)`);
+
+  if (!recs.length) {
+    doc.setFontSize(10);
+    doc.text('No records found for this date range.', 16, y + 4);
+  } else {
+    const cols = ['Date', 'Code', 'Service', 'Start', 'End', 'Min', 'Units', 'Location', 'Status'];
+    if (incNotes) cols.push('Notes');
+    const rows = recs.map(r => {
+      const row = [r.date, r.service_code, (r.service_name || '').substring(0, 20), r.start_time || '', r.end_time || '', r.minutes || 0, r.units || 0, r.location || '', r.status || ''];
+      if (incNotes) row.push((r.notes || '').substring(0, 60));
+      return row;
+    });
+    // Totals row
+    const totals = ['TOTAL', '', '', '', '', totalMins, totalUnits, '', ''];
+    if (incNotes) totals.push('');
+    rows.push(totals);
+
+    doc.autoTable({
+      startY: y,
+      head: [cols],
+      body: rows,
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 7, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.1 },
+      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 248, 252] },
+      didParseCell: function(data) {
+        // Bold totals row
+        if (data.row.index === rows.length - 1) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [232, 242, 255];
+        }
+      },
+      columnStyles: incNotes ? { 9: { cellWidth: 40 } } : {},
+    });
+  }
+
+  doc.save(`${c.name.replace(/[^a-zA-Z0-9]/g, '_')}_${startDate}_to_${endDate}.pdf`);
+}
+
+function generateAllClientsPDF(mo, incNotes, incBudget) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+  const moRecs = A.records.filter(r => r.date && r.date.startsWith(mo));
+
+  if (!moRecs.length) { toast('No records for this month'); return; }
+
+  const totalUnits = moRecs.reduce((s, r) => s + (r.units || 0), 0);
+  const totalMins = moRecs.reduce((s, r) => s + (r.minutes || 0), 0);
+  const totalBudget = A.clients.reduce((s, c) => s + (c.monthly_budget_units || 0), 0);
+
+  // Page 1: Summary
+  let y = pdfHeader(doc, 'Monthly Billing Report', monthName(mo) + ' — All Clients');
+
+  // Summary stats
+  if (incBudget) {
+    y = pdfSectionTitle(doc, y, 'MONTHLY OVERVIEW');
+    doc.setFontSize(9);
+    const stats = [
+      `Total Sessions: ${moRecs.length}`,
+      `Total Units: ${totalUnits}`,
+      `Total Minutes: ${totalMins} (${(totalMins / 60).toFixed(1)} hrs)`,
+      `Total Budget: ${totalBudget} units`,
+      `Budget Used: ${totalBudget ? Math.round(totalUnits / totalBudget * 100) : 0}%`,
+      `Clients Served: ${[...new Set(moRecs.map(r => r.client_id))].length} of ${A.clients.length}`,
+    ];
+    stats.forEach((s, i) => {
+      doc.text(s, 16 + (i % 3) * 90, y + Math.floor(i / 3) * 5);
+    });
+    y += Math.ceil(stats.length / 3) * 5 + 6;
+
+    // Budget table per client
+    y = pdfSectionTitle(doc, y, 'CLIENT BUDGET SUMMARY');
+    const budgetRows = A.clients.map(c => {
+      const used = moRecs.filter(r => r.client_id === c.id).reduce((s, r) => s + (r.units || 0), 0);
+      const bud = c.monthly_budget_units || 0;
+      const pct = bud ? Math.round(used / bud * 100) : 0;
+      const sessions = moRecs.filter(r => r.client_id === c.id).length;
+      return [c.name, c.client_ext_id || '', c.waiver_type || '', bud, used, bud - used, pct + '%', sessions];
+    });
+    // Total row
+    budgetRows.push(['TOTAL', '', '', totalBudget, totalUnits, totalBudget - totalUnits, (totalBudget ? Math.round(totalUnits / totalBudget * 100) : 0) + '%', moRecs.length]);
+
+    doc.autoTable({
+      startY: y,
+      head: [['Client', 'ID', 'Waiver', 'Budget', 'Used', 'Remaining', '% Used', 'Sessions']],
+      body: budgetRows,
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1 },
+      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 252] },
+      didParseCell: function(data) {
+        if (data.row.index === budgetRows.length - 1) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [232, 242, 255];
+        }
+        // Color the % Used column
+        if (data.column.index === 6 && data.row.index < budgetRows.length - 1) {
+          const pctVal = parseInt(data.cell.raw);
+          if (pctVal >= 90) data.cell.styles.textColor = [255, 59, 48];
+          else if (pctVal >= 70) data.cell.styles.textColor = [255, 149, 0];
+          else data.cell.styles.textColor = [52, 199, 89];
+        }
+      },
+    });
+  }
+
+  // One page per client with records
+  const clientsWithRecs = A.clients.filter(c => moRecs.some(r => r.client_id === c.id));
+  clientsWithRecs.forEach(c => {
+    doc.addPage('landscape');
+    const cRecs = moRecs.filter(r => r.client_id === c.id).sort((a, b) => a.date.localeCompare(b.date));
+    const cUnits = cRecs.reduce((s, r) => s + (r.units || 0), 0);
+    const cMins = cRecs.reduce((s, r) => s + (r.minutes || 0), 0);
+    const bud = c.monthly_budget_units || 0;
+    const pct = bud ? Math.round(cUnits / bud * 100) : 0;
+
+    let cy = pdfHeader(doc, c.name, monthName(mo) + ' · ' + (c.client_ext_id ? 'ID: ' + c.client_ext_id + ' · ' : '') + (c.waiver_type || '') + ' Waiver');
+
+    // Client summary line
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Sessions: ${cRecs.length}   |   Units: ${cUnits}/${bud} (${pct}%)   |   Minutes: ${cMins}   |   Auth#: ${c.auth_number || 'N/A'}   |   Dx: ${c.diagnosis || 'N/A'}`, 16, cy);
+    doc.setFont('helvetica', 'normal');
+    cy += 4;
+
+    // Progress bar
+    if (bud) {
+      const barW = 240, barH = 3;
+      doc.setFillColor(229, 229, 234);
+      doc.roundedRect(16, cy, barW, barH, 1.5, 1.5, 'F');
+      const fillColor = pct >= 90 ? [255, 59, 48] : pct >= 70 ? [255, 149, 0] : [52, 199, 89];
+      doc.setFillColor(...fillColor);
+      doc.roundedRect(16, cy, barW * (Math.min(pct, 100) / 100), barH, 1.5, 1.5, 'F');
+      cy += 8;
+    } else { cy += 4; }
+
+    // Records table
+    const cols = ['Date', 'Code', 'Service', 'Start', 'End', 'Min', 'Units', 'Location', 'Status'];
+    if (incNotes) cols.push('Notes');
+    const rows = cRecs.map(r => {
+      const row = [r.date, r.service_code, (r.service_name || '').substring(0, 25), r.start_time || '', r.end_time || '', r.minutes || 0, r.units || 0, r.location || '', r.status || ''];
+      if (incNotes) row.push((r.notes || '').substring(0, 80));
+      return row;
+    });
+    const totals = ['TOTAL', '', '', '', '', cMins, cUnits, '', ''];
+    if (incNotes) totals.push('');
+    rows.push(totals);
+
+    doc.autoTable({
+      startY: cy,
+      head: [cols],
+      body: rows,
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 7.5, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.1 },
+      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 252] },
+      didParseCell: function(data) {
+        if (data.row.index === rows.length - 1) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [232, 242, 255];
+        }
+      },
+      columnStyles: incNotes ? { 9: { cellWidth: 55 } } : {},
+    });
+  });
+
+  doc.save(`BCBA_Billing_${mo}_All_Clients.pdf`);
+}
+
+// ==========================================
 // RENDER ENGINE
 // ==========================================
 function render() {
@@ -475,7 +789,7 @@ function renderAuth() {
 function renderNav() {
   const t={dashboard:'Dashboard',clients:'Clients',records:'Records',settings:'Settings'};
   const acts={
-    dashboard:`<span class="sync-indicator" id="sync-badge"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':A.sync==='syncing'?'Syncing...':'Offline'}</span><button id="btn-export" title="Export"><i class="fas fa-file-export"></i></button>`,
+    dashboard:`<span class="sync-indicator" id="sync-badge"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':A.sync==='syncing'?'Syncing...':'Offline'}</span><button id="btn-print" title="Print PDF"><i class="fas fa-print"></i></button><button id="btn-export" title="Export"><i class="fas fa-file-export"></i></button>`,
     clients:`<button id="btn-add-client"><i class="fas fa-plus"></i></button>`,
     records:`<button id="btn-add-record"><i class="fas fa-plus"></i></button>`,
     settings:''
@@ -545,6 +859,7 @@ function pgSettings() {
       <div class="card-row" style="cursor:default"><div class="label"><i class="fas fa-cloud" style="width:20px;color:var(--green)"></i> Supabase Connected</div><div class="value"><span class="sync-indicator"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':'Offline'}</span></div></div>
       <div class="card-row" id="btn-chg-db"><div class="label"><i class="fas fa-database" style="width:20px;color:var(--purple)"></i> Change Database</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
     <div class="card"><div class="card-header">Data Management</div>
+      <div class="card-row" id="btn-print-set"><div class="label"><i class="fas fa-print" style="width:20px;color:var(--red)"></i> Print Records (PDF)</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-imp-xl"><div class="label"><i class="fas fa-file-import" style="width:20px;color:var(--green)"></i> Import from Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-exp-xl"><div class="label"><i class="fas fa-file-export" style="width:20px;color:var(--accent)"></i> Export to Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-exp-all"><div class="label"><i class="fas fa-download" style="width:20px;color:var(--purple)"></i> Export All (JSON Backup)</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
@@ -703,12 +1018,14 @@ function bind() {
   document.getElementById('btn-add-client')?.addEventListener('click',()=>showClientModal());
   document.getElementById('btn-add-record')?.addEventListener('click',()=>showRecordModal());
   document.getElementById('btn-export')?.addEventListener('click',exportXL);
+  document.getElementById('btn-print')?.addEventListener('click',showPrintModal);
   document.getElementById('btn-exp-rec')?.addEventListener('click',exportXL);
   // View/edit
   document.querySelectorAll('[data-vc]').forEach(el=>el.onclick=()=>showClientDetail(el.dataset.vc));
   document.querySelectorAll('[data-er]').forEach(el=>el.onclick=()=>{const r=A.records.find(x=>x.id===el.dataset.er);if(r)showRecordModal(r);});
   // Settings
   document.getElementById('btn-imp-xl')?.addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='.xlsx,.xls,.csv';i.onchange=e=>{if(e.target.files[0])importXL(e.target.files[0]);};i.click();});
+  document.getElementById('btn-print-set')?.addEventListener('click',showPrintModal);
   document.getElementById('btn-exp-xl')?.addEventListener('click',exportXL);
   document.getElementById('btn-exp-all')?.addEventListener('click',exportAll);
   document.getElementById('btn-chg-db')?.addEventListener('click',()=>{sb=null;render();});
