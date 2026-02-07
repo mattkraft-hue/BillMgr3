@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#f2f2f7">
+<title>BCBA Billing Tracker</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script>
+<style>
+:root{--bg-primary:#f2f2f7;--bg-secondary:#ffffff;--bg-tertiary:#e5e5ea;--text-primary:#1c1c1e;--text-secondary:#3a3a3c;--text-tertiary:#8e8e93;--accent:#007aff;--accent-light:#e8f2ff;--green:#34c759;--orange:#ff9500;--red:#ff3b30;--purple:#af52de;--separator:rgba(60,60,67,0.12);--card-shadow:0 1px 3px rgba(0,0,0,0.08);--radius:12px;--radius-lg:16px;--safe-top:env(safe-area-inset-top,20px);--safe-bottom:env(safe-area-inset-bottom,0px);--tab-height:82px}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;background:var(--bg-primary);color:var(--text-primary);-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100dvh}
+.nav-bar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(242,242,247,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid var(--separator);padding:var(--safe-top) 16px 12px}
+.nav-bar h1{font-size:34px;font-weight:700;letter-spacing:-0.5px}.nav-bar .subtitle{font-size:13px;color:var(--text-tertiary);margin-top:2px}
+.nav-actions{display:flex;gap:8px;position:absolute;right:16px;top:var(--safe-top)}
+.nav-actions button{width:36px;height:36px;border-radius:50%;border:none;background:var(--accent-light);color:var(--accent);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.nav-actions button:active{transform:scale(0.9)}
+.tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(242,242,247,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--separator);display:flex;justify-content:space-around;padding:6px 0 calc(6px + var(--safe-bottom));height:var(--tab-height)}
+.tab-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text-tertiary);font-size:10px;font-weight:500;cursor:pointer;padding:4px 12px;min-width:64px;transition:color .2s}
+.tab-item.active{color:var(--accent)}.tab-item i{font-size:22px}
+.content{padding:calc(var(--safe-top) + 80px) 16px calc(var(--tab-height) + 16px);max-width:600px;margin:0 auto}
+.card{background:var(--bg-secondary);border-radius:var(--radius-lg);box-shadow:var(--card-shadow);margin-bottom:12px;overflow:hidden}
+.card-header{padding:16px 16px 8px;font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px}
+.card-body{padding:0 16px 16px}
+.card-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid var(--separator);cursor:pointer;transition:background .15s}
+.card-row:last-child{border-bottom:none}.card-row:active{background:var(--bg-primary)}
+.card-row .label{font-size:15px}.card-row .value{font-size:15px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px}
+.card-row .value i{font-size:12px;color:var(--text-tertiary)}
+.form-group{margin-bottom:16px}
+.form-label{font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block;padding-left:4px}
+.form-input,.form-select,.form-textarea{width:100%;padding:12px 14px;font-size:16px;border:none;border-radius:var(--radius);background:var(--bg-primary);color:var(--text-primary);font-family:inherit;outline:none;transition:box-shadow .2s}
+.form-input:focus,.form-select:focus,.form-textarea:focus{box-shadow:0 0 0 2px var(--accent)}
+.form-textarea{min-height:80px;resize:vertical}
+.form-select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238e8e93' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+.btn{width:100%;padding:14px;border:none;border-radius:var(--radius);font-size:17px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.btn:active{transform:scale(0.98)}.btn:disabled{opacity:.5;pointer-events:none}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#0066d6}
+.btn-secondary{background:var(--bg-primary);color:var(--accent)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-small{padding:8px 16px;font-size:14px;width:auto;border-radius:8px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.stat-card{background:var(--bg-secondary);border-radius:var(--radius-lg);padding:16px;box-shadow:var(--card-shadow)}
+.stat-card .stat-label{font-size:12px;color:var(--text-tertiary);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.stat-card .stat-value{font-size:28px;font-weight:700;margin-top:4px}
+.stat-card .stat-sub{font-size:12px;color:var(--text-tertiary);margin-top:2px}
+.stat-card.accent .stat-value{color:var(--accent)}.stat-card.green .stat-value{color:var(--green)}
+.stat-card.orange .stat-value{color:var(--orange)}.stat-card.purple .stat-value{color:var(--purple)}
+.progress-bar{height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;border-radius:4px;transition:width .5s ease}
+.progress-green{background:var(--green)}.progress-orange{background:var(--orange)}.progress-red{background:var(--red)}
+.badge{display:inline-block;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.badge-green{background:rgba(52,199,89,.12);color:var(--green)}
+.badge-orange{background:rgba(255,149,0,.12);color:var(--orange)}
+.badge-red{background:rgba(255,59,48,.12);color:var(--red)}
+.badge-blue{background:rgba(0,122,255,.12);color:var(--accent)}
+.badge-purple{background:rgba(175,82,222,.12);color:var(--purple)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s ease}
+.modal-sheet{background:var(--bg-primary);border-radius:16px 16px 0 0;width:100%;max-width:600px;max-height:90dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;animation:slideUp .3s ease;padding-bottom:var(--safe-bottom)}
+.modal-handle{width:36px;height:5px;background:var(--text-tertiary);border-radius:3px;margin:8px auto 0;opacity:.3}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 8px;position:sticky;top:0;background:var(--bg-primary);z-index:1}
+.modal-header h2{font-size:17px;font-weight:600}
+.modal-header button{background:none;border:none;color:var(--accent);font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
+.modal-body{padding:8px 20px 24px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.auth-screen{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;background:linear-gradient(180deg,#e8f2ff 0%,#f2f2f7 50%)}
+.auth-logo{width:80px;height:80px;border-radius:20px;background:var(--accent);display:flex;align-items:center;justify-content:center;margin-bottom:24px;box-shadow:0 4px 20px rgba(0,122,255,.3)}
+.auth-logo i{font-size:36px;color:#fff}
+.auth-title{font-size:28px;font-weight:700;margin-bottom:4px;text-align:center}
+.auth-subtitle{font-size:15px;color:var(--text-tertiary);margin-bottom:32px;text-align:center}
+.auth-card{width:100%;max-width:400px;background:var(--bg-secondary);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--card-shadow)}
+.auth-toggle{text-align:center;margin-top:16px;font-size:14px;color:var(--text-tertiary)}
+.auth-toggle a{color:var(--accent);font-weight:600;cursor:pointer;text-decoration:none}
+.auth-error{background:rgba(255,59,48,.08);color:var(--red);padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px}
+.auth-success{background:rgba(52,199,89,.08);color:var(--green);padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px}
+.search-bar{position:relative;margin-bottom:16px}
+.search-bar input{width:100%;padding:10px 12px 10px 36px;font-size:15px;border:none;border-radius:10px;background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;outline:none;box-shadow:var(--card-shadow)}
+.search-bar i{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:14px}
+.client-card{background:var(--bg-secondary);border-radius:var(--radius-lg);padding:16px;margin-bottom:10px;box-shadow:var(--card-shadow);cursor:pointer;transition:all .2s}
+.client-card:active{transform:scale(0.98)}.client-card .client-name{font-size:17px;font-weight:600}
+.client-card .client-info{font-size:13px;color:var(--text-tertiary);margin-top:2px}
+.record-item{background:var(--bg-secondary);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px;box-shadow:var(--card-shadow);cursor:pointer}
+.record-item .record-top{display:flex;justify-content:space-between;align-items:flex-start}
+.record-item .record-date{font-size:14px;font-weight:600}
+.record-item .record-code{font-size:13px;color:var(--accent);font-weight:500}
+.record-item .record-details{font-size:13px;color:var(--text-tertiary);margin-top:4px}
+.record-item .record-units{font-size:15px;font-weight:700;color:var(--accent)}
+.file-upload-area{border:2px dashed var(--bg-tertiary);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer}
+.file-upload-area:active{border-color:var(--accent);background:var(--accent-light)}
+.file-upload-area i{font-size:24px;color:var(--text-tertiary);margin-bottom:8px}
+.file-upload-area p{font-size:14px;color:var(--text-tertiary)}
+.file-tag{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--accent-light);border-radius:8px;font-size:13px;color:var(--accent);margin:4px 4px 4px 0}
+.file-tag button{background:none;border:none;color:var(--red);cursor:pointer;font-size:12px}
+.loading-spinner{display:flex;align-items:center;justify-content:center;padding:40px}
+.loading-spinner::after{content:'';width:30px;height:30px;border:3px solid var(--bg-tertiary);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-tertiary)}
+.empty-state i{font-size:48px;margin-bottom:16px;opacity:.3}
+.empty-state h3{font-size:18px;font-weight:600;color:var(--text-secondary);margin-bottom:6px}
+.empty-state p{font-size:14px}
+.sync-indicator{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-tertiary);padding:4px 8px;background:var(--bg-secondary);border-radius:12px;box-shadow:var(--card-shadow)}
+.sync-dot{width:6px;height:6px;border-radius:50%}
+.sync-dot.online{background:var(--green)}.sync-dot.offline{background:var(--orange)}
+.sync-dot.syncing{background:var(--accent);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.setup-card{background:var(--bg-secondary);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--card-shadow);margin-bottom:16px}
+.setup-card h3{font-size:16px;font-weight:600;margin-bottom:8px}
+.setup-card p{font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:12px}
+.setup-card ol{padding-left:20px;font-size:13px;color:var(--text-secondary);line-height:1.8;margin-bottom:12px}
+.setup-card .code-block{background:var(--text-primary);color:#4ade80;padding:12px 14px;border-radius:8px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;overflow-x:auto;margin:8px 0;white-space:pre;line-height:1.6}
+.toast{position:fixed;top:calc(var(--safe-top) + 60px);left:50%;transform:translateX(-50%);background:var(--text-primary);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:500;z-index:300;animation:toastIn .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.3);max-width:90vw;text-align:center}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-20px)}}
+@media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
+::-webkit-scrollbar{width:0}
+</style>
+</head>
+<body>
+<div id="app"><div class="loading-spinner" style="min-height:100dvh"></div></div>
+<script>
+// ==========================================
+// SUPABASE CONFIG & INIT
+// ==========================================
+const SB_CFG = { url: '', anonKey: '' };
+let sb = null;
+
+function initSB(url, key) {
+  if (url && key) { try { sb = window.supabase.createClient(url, key); return true; } catch(e) { return false; } }
+  return false;
+}
+function sbOk() { return sb !== null; }
+function loadSBConfig() {
+  const s = localStorage.getItem('bcba_sb_config');
+  if (s) { const c = JSON.parse(s); SB_CFG.url = c.url||''; SB_CFG.anonKey = c.anonKey||''; }
+  return initSB(SB_CFG.url, SB_CFG.anonKey);
+}
+function saveSBConfig(url, key) {
+  SB_CFG.url = url; SB_CFG.anonKey = key;
+  localStorage.setItem('bcba_sb_config', JSON.stringify({ url, anonKey: key }));
+  return initSB(url, key);
+}
+
+// ==========================================
+// APP STATE & SERVICE CODES
+// ==========================================
+const A = {
+  user: null, page: 'dashboard', clients: [], records: [],
+  search: '', month: new Date().toISOString().slice(0,7),
+  authMode: 'login', sync: 'offline'
+};
+
+const CODES = [
+  { code:'97151', name:'Behavior Identification Assessment', unit:'15 min', desc:'Initial evaluation by BCBA', role:'BCBA' },
+  { code:'97152', name:'Behavior ID Support Assessment', unit:'15 min', desc:'Support assessment by tech', role:'Tech' },
+  { code:'97153', name:'Adaptive Behavior Treatment Protocol', unit:'15 min', desc:'Direct treatment by tech', role:'Tech' },
+  { code:'97154', name:'Group Adaptive Behavior Treatment', unit:'15 min', desc:'Group therapy by tech', role:'Tech' },
+  { code:'97155', name:'Adaptive Behavior w/ Protocol Mod', unit:'15 min', desc:'BCBA treatment with protocol mod', role:'BCBA' },
+  { code:'97156', name:'Family Adaptive Behavior Guidance', unit:'15 min', desc:'Family/caregiver training', role:'BCBA' },
+  { code:'97157', name:'Multiple Family Group Guidance', unit:'15 min', desc:'Multi-family sessions', role:'BCBA' },
+  { code:'97158', name:'Group Treatment w/ Protocol Mod', unit:'15 min', desc:'BCBA group treatment', role:'BCBA' },
+  { code:'H0031', name:'Mental Health Assessment', unit:'15 min', desc:'Assessment (alt code)', role:'BCBA' },
+  { code:'H2014', name:'Skills Training & Development', unit:'15 min', desc:'Direct services by tech', role:'Tech' },
+  { code:'H2019', name:'Therapeutic Behavioral Services', unit:'15 min', desc:'Direct services by BCBA', role:'BCBA' },
+  { code:'T1024', name:'Service Plan Development', unit:'Per plan', desc:'Plan development/revision', role:'BCBA' },
+];
+
+function gid() { return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).substr(2,9); }
+
+// ==========================================
+// AUTH
+// ==========================================
+async function doSignUp(email, pw, name) {
+  if (!sbOk()) throw new Error('Database not configured.');
+  const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { full_name: name } } });
+  if (error) throw error;
+  if (data.user && !data.session) return { needsConfirm: true };
+  A.user = { id: data.user.id, email: data.user.email, name };
+  return data;
+}
+async function doSignIn(email, pw) {
+  if (!sbOk()) throw new Error('Database not configured.');
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+  if (error) throw error;
+  A.user = { id: data.user.id, email: data.user.email, name: data.user.user_metadata?.full_name || email.split('@')[0] };
+}
+async function doResetPw(email) {
+  if (!sbOk()) throw new Error('Database not configured.');
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) throw error;
+}
+async function doSignOut() {
+  if (sbOk()) await sb.auth.signOut();
+  A.user = null; A.clients = []; A.records = []; render();
+}
+async function checkSession() {
+  if (!sbOk()) return false;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) {
+      A.user = { id: session.user.id, email: session.user.email, name: session.user.user_metadata?.full_name || session.user.email.split('@')[0] };
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// ==========================================
+// DATABASE OPS
+// ==========================================
+async function loadClients() {
+  if (!A.user || !sbOk()) return;
+  A.sync = 'syncing'; updSync();
+  try {
+    const { data, error } = await sb.from('clients').select('*').eq('user_id', A.user.id).order('name');
+    if (error) throw error;
+    A.clients = data || [];
+    A.sync = 'online';
+  } catch(e) { console.error(e); A.sync = 'offline'; }
+  updSync();
+}
+
+async function loadRecords() {
+  if (!A.user || !sbOk()) return;
+  try {
+    const { data, error } = await sb.from('records').select('*').eq('user_id', A.user.id).order('date', { ascending: false });
+    if (error) throw error;
+    A.records = data || [];
+  } catch(e) { console.error(e); }
+}
+
+async function saveClient(d) {
+  if (!sbOk()) throw new Error('Database not configured');
+  const r = {
+    id: d.id || gid(), user_id: A.user.id, name: d.name,
+    client_ext_id: d.clientId || d.client_ext_id || '',
+    dob: d.dob || null, diagnosis: d.diagnosis || '',
+    monthly_budget_units: parseInt(d.monthlyBudgetUnits || d.monthly_budget_units) || 0,
+    waiver_type: d.waiverType || d.waiver_type || 'FSW',
+    auth_number: d.authNumber || d.auth_number || '',
+    notes: d.notes || '', created_at: d.created_at || new Date().toISOString(),
+  };
+  const { error } = await sb.from('clients').upsert(r);
+  if (error) throw error;
+  await loadClients();
+  return r;
+}
+
+async function deleteClient(id) {
+  const recs = A.records.filter(r => r.client_id === id);
+  for (const rec of recs) await sb.from('files').delete().eq('record_id', rec.id);
+  await sb.from('records').delete().eq('client_id', id);
+  const { error } = await sb.from('clients').delete().eq('id', id);
+  if (error) throw error;
+  await loadClients(); await loadRecords();
+}
+
+async function saveRecord(d) {
+  if (!sbOk()) throw new Error('Database not configured');
+  const r = {
+    id: d.id || gid(), user_id: A.user.id,
+    client_id: d.clientId || d.client_id,
+    date: d.date, service_code: d.serviceCode || d.service_code,
+    service_name: d.serviceName || d.service_name || '',
+    start_time: d.startTime || d.start_time || '',
+    end_time: d.endTime || d.end_time || '',
+    minutes: parseInt(d.minutes) || 0, units: parseInt(d.units) || 0,
+    location: d.location || '', status: d.status || 'pending',
+    notes: d.notes || '', created_at: d.created_at || new Date().toISOString(),
+  };
+  const { error } = await sb.from('records').upsert(r);
+  if (error) throw error;
+  await loadRecords();
+  return r;
+}
+
+async function deleteRecord(id) {
+  await sb.from('files').delete().eq('record_id', id);
+  const { error } = await sb.from('records').delete().eq('id', id);
+  if (error) throw error;
+  await loadRecords();
+}
+
+async function saveFile(d) {
+  if (!sbOk()) throw new Error('Database not configured');
+  const r = { id: d.id || gid(), record_id: d.recordId || d.record_id, name: d.name, type: d.type||'', size: d.size||0, data: d.data, uploaded_at: new Date().toISOString() };
+  const { error } = await sb.from('files').upsert(r);
+  if (error) throw error;
+  return r;
+}
+
+async function getFiles(recordId) {
+  if (!sbOk()) return [];
+  const { data } = await sb.from('files').select('*').eq('record_id', recordId);
+  return data || [];
+}
+
+async function deleteFile(id) { if (sbOk()) await sb.from('files').delete().eq('id', id); }
+
+// ==========================================
+// UTILITIES
+// ==========================================
+function calcUnits(m) { return m < 8 ? 0 : Math.floor((m+7)/15); }
+function minsFromTimes(s,e) { if(!s||!e) return 0; const[sh,sm]=s.split(':').map(Number);const[eh,em]=e.split(':').map(Number); return(eh*60+em)-(sh*60+sm); }
+function fmtDate(d) { if(!d)return''; return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function monthName(ym) { const[y,m]=ym.split('-'); return new Date(+y,+m-1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); }
+function clientRecs(cid,mo) { return A.records.filter(r=>r.client_id===cid&&(!mo||(r.date&&r.date.startsWith(mo)))); }
+function clientUnits(cid,mo) { return clientRecs(cid,mo).reduce((s,r)=>s+(r.units||0),0); }
+function toast(msg) { document.querySelector('.toast')?.remove(); const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2500); }
+function updSync() { const el=document.getElementById('sync-badge'); if(!el)return; const l={online:'Synced',offline:'Offline',syncing:'Syncing...'}; el.innerHTML=`<span class="sync-dot ${A.sync}"></span>${l[A.sync]}`; }
+function readFileB64(f) { return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=rej; r.readAsDataURL(f); }); }
+
+// ==========================================
+// EXCEL
+// ==========================================
+function exportXL() {
+  const mo=A.month, fl=A.records.filter(r=>r.date&&r.date.startsWith(mo));
+  const data=fl.map(r=>{ const c=A.clients.find(x=>x.id===r.client_id); return {'Date':r.date,'Client Name':c?c.name:'Unknown','Client ID':c?c.client_ext_id:'','Service Code':r.service_code,'Service Name':r.service_name,'Start Time':r.start_time,'End Time':r.end_time,'Minutes':r.minutes,'Units':r.units,'Location':r.location,'Notes':r.notes,'Status':r.status}; });
+  if(!data.length){toast('No records for this month');return;}
+  const ws=XLSX.utils.json_to_sheet(data), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Billing Records');
+  const bd=A.clients.map(c=>{ const u=fl.filter(r=>r.client_id===c.id).reduce((s,r)=>s+(r.units||0),0); return{'Client Name':c.name,'Client ID':c.client_ext_id||'','Monthly Budget':c.monthly_budget_units||0,'Used':u,'Remaining':(c.monthly_budget_units||0)-u,'% Used':c.monthly_budget_units?Math.round(u/c.monthly_budget_units*100)+'%':'N/A'}; });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(bd),'Budget Summary');
+  XLSX.writeFile(wb,`BCBA_Billing_${mo}.xlsx`); toast('Excel exported');
+}
+
+async function importXL(file) {
+  const reader=new FileReader();
+  reader.onload=async(e)=>{
+    try {
+      const d=new Uint8Array(e.target.result), wb=XLSX.read(d,{type:'array'}), rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let n=0;
+      for(const row of rows) {
+        let c=A.clients.find(x=>x.name===row['Client Name']);
+        if(!c&&row['Client Name']) { c=await saveClient({name:row['Client Name'],clientId:row['Client ID']||'',monthlyBudgetUnits:0}); await loadClients(); }
+        if(c&&row['Date']) { await saveRecord({clientId:c.id,date:row['Date'],serviceCode:row['Service Code']||'97155',serviceName:row['Service Name']||'',startTime:row['Start Time']||'',endTime:row['End Time']||'',minutes:+row['Minutes']||0,units:+row['Units']||0,location:row['Location']||'',notes:row['Notes']||'',status:row['Status']||'pending'}); n++; }
+      }
+      await loadClients(); await loadRecords(); toast(`Imported ${n} records`); render();
+    } catch(err) { toast('Import error: '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function exportAll() {
+  const d={v:2,date:new Date().toISOString(),clients:A.clients,records:A.records};
+  const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`bcba_backup_${new Date().toISOString().split('T')[0]}.json`; a.click();
+  toast('Backup exported');
+}
+
+// ==========================================
+// RENDER ENGINE
+// ==========================================
+function render() {
+  const app=document.getElementById('app');
+  if(!sbOk()) app.innerHTML=renderSetup();
+  else if(!A.user) app.innerHTML=renderAuth();
+  else app.innerHTML=renderNav()+renderPage()+renderTabs();
+  bind();
+}
+
+function renderSetup() {
+  return `<div class="auth-screen" style="justify-content:flex-start;padding-top:60px">
+    <div class="auth-logo"><i class="fas fa-database"></i></div>
+    <h1 class="auth-title">Database Setup</h1>
+    <p class="auth-subtitle">Connect to Supabase for persistent cloud storage</p>
+    <div class="setup-card" style="max-width:440px">
+      <h3><i class="fas fa-rocket" style="color:var(--accent)"></i> Quick Setup (5 minutes)</h3>
+      <ol>
+        <li>Go to <a href="https://supabase.com" target="_blank" style="color:var(--accent)">supabase.com</a> — create a free account</li>
+        <li>Create a new project (any name, set a DB password, pick a region)</li>
+        <li>Go to <strong>Project Settings → API</strong></li>
+        <li>Copy your <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
+        <li>Go to <strong>SQL Editor</strong> and run the setup SQL (below)</li>
+      </ol>
+    </div>
+    <div class="auth-card" style="max-width:440px">
+      <div id="setup-error"></div>
+      <div class="form-group"><label class="form-label">Supabase Project URL</label>
+        <input type="url" class="form-input" id="setup-url" value="${SB_CFG.url}" placeholder="https://xxxx.supabase.co"></div>
+      <div class="form-group"><label class="form-label">Anon / Public Key</label>
+        <input type="text" class="form-input" id="setup-key" value="${SB_CFG.anonKey}" placeholder="eyJhbGciOi..."></div>
+      <button class="btn btn-primary" id="btn-setup">Connect & Continue</button>
+    </div>
+    <div class="setup-card" style="max-width:440px;margin-top:16px">
+      <h3><i class="fas fa-code" style="color:var(--green)"></i> SQL Setup Script</h3>
+      <p>Run this in Supabase <strong>SQL Editor</strong> to create tables with Row Level Security:</p>
+      <div class="code-block" id="sql-block">-- Clients table
+CREATE TABLE IF NOT EXISTS clients (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  client_ext_id TEXT DEFAULT '',
+  dob DATE,
+  diagnosis TEXT DEFAULT '',
+  monthly_budget_units INTEGER DEFAULT 0,
+  waiver_type TEXT DEFAULT 'FSW',
+  auth_number TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users own clients" ON clients FOR ALL USING (auth.uid() = user_id);
+
+-- Records table
+CREATE TABLE IF NOT EXISTS records (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  service_code TEXT NOT NULL,
+  service_name TEXT DEFAULT '',
+  start_time TEXT DEFAULT '',
+  end_time TEXT DEFAULT '',
+  minutes INTEGER DEFAULT 0,
+  units INTEGER DEFAULT 0,
+  location TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users own records" ON records FOR ALL USING (auth.uid() = user_id);
+
+-- Files table
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT DEFAULT '',
+  size INTEGER DEFAULT 0,
+  data TEXT,
+  uploaded_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users own files" ON files FOR ALL
+  USING (EXISTS (SELECT 1 FROM records WHERE records.id = files.record_id AND records.user_id = auth.uid()));</div>
+      <button class="btn btn-secondary btn-small" id="btn-copy-sql" style="margin-top:8px;display:inline-block"><i class="fas fa-copy"></i> Copy SQL</button>
+    </div>
+  </div>`;
+}
+
+function renderAuth() {
+  const m=A.authMode;
+  if(m==='reset') return `<div class="auth-screen"><div class="auth-logo"><i class="fas fa-clipboard-check"></i></div>
+    <h1 class="auth-title">Reset Password</h1><p class="auth-subtitle">We'll email you a reset link</p>
+    <div class="auth-card"><div id="auth-error"></div>
+      <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="reset-email" placeholder="your@email.com"></div>
+      <button class="btn btn-primary" id="btn-reset">Send Reset Link</button>
+      <div class="auth-toggle"><a id="goto-login">Back to Sign In</a></div>
+    </div></div>`;
+  return `<div class="auth-screen"><div class="auth-logo"><i class="fas fa-clipboard-check"></i></div>
+    <h1 class="auth-title">BCBA Billing</h1><p class="auth-subtitle">Indiana Waiver Time Tracking</p>
+    <div class="auth-card"><div id="auth-error"></div>
+      ${m==='register'?`<div class="form-group"><label class="form-label">Full Name</label><input type="text" class="form-input" id="auth-name" placeholder="Your name"></div>`:''}
+      <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="auth-email" placeholder="your@email.com"></div>
+      <div class="form-group"><label class="form-label">Password</label><input type="password" class="form-input" id="auth-password" placeholder="${m==='register'?'Min 6 characters':'Enter password'}"></div>
+      <button class="btn btn-primary" id="btn-auth">${m==='register'?'Create Account':'Sign In'}</button>
+      ${m==='login'?'<div class="auth-toggle" style="margin-top:12px"><a id="goto-reset">Forgot Password?</a></div>':''}
+      <div class="auth-toggle">${m==='login'?`Don't have an account? <a id="goto-register">Sign Up</a>`:`Already have an account? <a id="goto-login">Sign In</a>`}</div>
+      <div class="auth-toggle" style="margin-top:8px"><a id="goto-setup" style="font-size:12px;color:var(--text-tertiary)"><i class="fas fa-gear"></i> Change Database</a></div>
+    </div></div>`;
+}
+
+function renderNav() {
+  const t={dashboard:'Dashboard',clients:'Clients',records:'Records',settings:'Settings'};
+  const acts={
+    dashboard:`<span class="sync-indicator" id="sync-badge"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':A.sync==='syncing'?'Syncing...':'Offline'}</span><button id="btn-export" title="Export"><i class="fas fa-file-export"></i></button>`,
+    clients:`<button id="btn-add-client"><i class="fas fa-plus"></i></button>`,
+    records:`<button id="btn-add-record"><i class="fas fa-plus"></i></button>`,
+    settings:''
+  };
+  return `<div class="nav-bar"><h1>${t[A.page]}</h1><div class="subtitle">${A.page==='dashboard'?monthName(A.month):''}</div><div class="nav-actions">${acts[A.page]||''}</div></div>`;
+}
+
+function renderTabs() {
+  const tabs=[{id:'dashboard',icon:'fas fa-chart-pie',l:'Dashboard'},{id:'clients',icon:'fas fa-users',l:'Clients'},{id:'records',icon:'fas fa-clock',l:'Records'},{id:'settings',icon:'fas fa-gear',l:'Settings'}];
+  return `<div class="tab-bar">${tabs.map(t=>`<button class="tab-item ${A.page===t.id?'active':''}" data-tab="${t.id}"><i class="${t.icon}"></i><span>${t.l}</span></button>`).join('')}</div>`;
+}
+
+function renderPage() {
+  const p={dashboard:pgDash,clients:pgClients,records:pgRecords,settings:pgSettings};
+  return `<div class="content">${(p[A.page]||pgDash)()}</div>`;
+}
+
+// ==========================================
+// PAGE RENDERERS
+// ==========================================
+function pgDash() {
+  const mo=A.month, mr=A.records.filter(r=>r.date&&r.date.startsWith(mo));
+  const tu=mr.reduce((s,r)=>s+(r.units||0),0), tm=mr.reduce((s,r)=>s+(r.minutes||0),0);
+  const tb=A.clients.reduce((s,c)=>s+(c.monthly_budget_units||0),0);
+  const uc=[...new Set(mr.map(r=>r.client_id))].length;
+  return `<div class="form-group"><input type="month" class="form-input" id="dash-month" value="${mo}" style="text-align:center"></div>
+    <div class="stats-grid">
+      <div class="stat-card accent"><div class="stat-label">Total Units</div><div class="stat-value">${tu}</div><div class="stat-sub">${tm} min</div></div>
+      <div class="stat-card green"><div class="stat-label">Sessions</div><div class="stat-value">${mr.length}</div><div class="stat-sub">this month</div></div>
+      <div class="stat-card orange"><div class="stat-label">Clients Seen</div><div class="stat-value">${uc}</div><div class="stat-sub">of ${A.clients.length}</div></div>
+      <div class="stat-card purple"><div class="stat-label">Budget Used</div><div class="stat-value">${tb?Math.round(tu/tb*100):0}%</div><div class="stat-sub">${tu}/${tb} units</div></div>
+    </div>
+    <div class="card"><div class="card-header">Client Budget Overview</div>
+      ${!A.clients.length?'<div class="card-body"><div class="empty-state" style="padding:20px"><p>Add clients to see budgets</p></div></div>':
+        A.clients.map(c=>{const u=clientUnits(c.id,mo),b=c.monthly_budget_units||0,p=b?Math.round(u/b*100):0,cl=p>=90?'red':p>=70?'orange':'green';
+        return`<div class="card-row" data-vc="${c.id}"><div><div class="label">${c.name}</div><div style="font-size:12px;color:var(--text-tertiary)">${u}/${b} units</div><div class="progress-bar" style="width:120px"><div class="progress-fill progress-${cl}" style="width:${Math.min(p,100)}%"></div></div></div><div class="value"><span class="badge badge-${cl}">${p}%</span><i class="fas fa-chevron-right"></i></div></div>`;}).join('')}
+    </div>
+    <div class="card"><div class="card-header">Recent Activity</div>
+      ${mr.slice(0,5).map(r=>{const c=A.clients.find(x=>x.id===r.client_id);
+        return`<div class="card-row" data-er="${r.id}"><div><div class="label">${c?c.name:'Unknown'}</div><div style="font-size:12px;color:var(--text-tertiary)">${fmtDate(r.date)} · ${r.service_code}</div></div><div class="value"><span style="font-weight:600;color:var(--accent)">${r.units}u</span><i class="fas fa-chevron-right"></i></div></div>`;}).join('')}
+      ${!mr.length?'<div class="card-body"><div class="empty-state" style="padding:20px"><p>No records this month</p></div></div>':''}
+    </div>`;
+}
+
+function pgClients() {
+  const fl=A.clients.filter(c=>!A.search||c.name.toLowerCase().includes(A.search.toLowerCase()));
+  return `<div class="search-bar"><i class="fas fa-search"></i><input type="text" placeholder="Search clients..." id="cli-search" value="${A.search}"></div>
+    ${!fl.length?`<div class="empty-state"><i class="fas fa-user-plus"></i><h3>${A.search?'No Match':'No Clients Yet'}</h3><p>${A.search?'Try different search':'Tap + to add first client'}</p></div>`:
+      fl.map(c=>{const u=clientUnits(c.id,A.month),b=c.monthly_budget_units||0,p=b?Math.round(u/b*100):0,cl=p>=90?'red':p>=70?'orange':'green';
+        return`<div class="client-card" data-vc="${c.id}"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div class="client-name">${c.name}</div><div class="client-info">${c.client_ext_id?'ID: '+c.client_ext_id+' · ':''}${c.diagnosis||'No diagnosis'}</div></div><span class="badge badge-${cl}">${u}/${b}u</span></div><div style="display:flex;align-items:center;margin-top:10px"><div class="progress-bar" style="flex:1"><div class="progress-fill progress-${cl}" style="width:${Math.min(p,100)}%"></div></div><span style="margin-left:10px;font-size:12px;color:var(--text-tertiary)">${p}%</span></div></div>`;}).join('')}`;
+}
+
+function pgRecords() {
+  const mo=A.month, fl=A.records.filter(r=>r.date&&r.date.startsWith(mo));
+  return `<div class="form-group"><input type="month" class="form-input" id="rec-month" value="${mo}" style="text-align:center"></div>
+    ${A.clients.length?`<div class="form-group"><select class="form-select" id="rec-cf"><option value="">All Clients</option>${A.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>`:''}
+    ${!fl.length?'<div class="empty-state"><i class="fas fa-clock"></i><h3>No Records</h3><p>Tap + to log first session</p></div>':
+      fl.map(r=>{const c=A.clients.find(x=>x.id===r.client_id),sc=r.status==='billed'?'green':r.status==='denied'?'red':'orange';
+        return`<div class="record-item" data-er="${r.id}"><div class="record-top"><div><div class="record-date">${fmtDate(r.date)}</div><div class="record-details">${c?c.name:'Unknown'}</div><div class="record-code">${r.service_code} · ${r.service_name||''}</div><div class="record-details">${r.start_time||''} — ${r.end_time||''} · ${r.minutes||0} min</div></div><div style="text-align:right"><div class="record-units">${r.units}u</div><span class="badge badge-${sc}" style="margin-top:4px">${r.status||'pending'}</span></div></div></div>`;}).join('')}
+    <div style="text-align:center;padding:16px"><button class="btn btn-secondary btn-small" id="btn-exp-rec" style="display:inline-block"><i class="fas fa-file-export"></i> Export to Excel</button></div>`;
+}
+
+function pgSettings() {
+  return `<div class="card"><div class="card-header">Account</div>
+      <div class="card-row" style="cursor:default"><div class="label"><i class="fas fa-user" style="width:20px;color:var(--accent)"></i> ${A.user.name}</div><div class="value">${A.user.email}</div></div></div>
+    <div class="card"><div class="card-header">Cloud Storage</div>
+      <div class="card-row" style="cursor:default"><div class="label"><i class="fas fa-cloud" style="width:20px;color:var(--green)"></i> Supabase Connected</div><div class="value"><span class="sync-indicator"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':'Offline'}</span></div></div>
+      <div class="card-row" id="btn-chg-db"><div class="label"><i class="fas fa-database" style="width:20px;color:var(--purple)"></i> Change Database</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
+    <div class="card"><div class="card-header">Data Management</div>
+      <div class="card-row" id="btn-imp-xl"><div class="label"><i class="fas fa-file-import" style="width:20px;color:var(--green)"></i> Import from Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
+      <div class="card-row" id="btn-exp-xl"><div class="label"><i class="fas fa-file-export" style="width:20px;color:var(--accent)"></i> Export to Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
+      <div class="card-row" id="btn-exp-all"><div class="label"><i class="fas fa-download" style="width:20px;color:var(--purple)"></i> Export All (JSON Backup)</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
+    <div class="card"><div class="card-header">Indiana Waiver Codes</div>
+      ${CODES.filter(s=>s.role==='BCBA').map(s=>`<div class="card-row" style="cursor:default"><div><div class="label" style="font-size:14px"><span class="badge badge-blue">${s.code}</span> ${s.name}</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">${s.desc} · ${s.unit}</div></div></div>`).join('')}</div>
+    <div class="card"><div class="card-header">About</div><div class="card-body"><p style="font-size:13px;color:var(--text-tertiary);line-height:1.5">BCBA Billing Tracker v2.0<br>Persistent cloud storage via Supabase<br>Data syncs across all devices<br>Verify codes with current IHCP guidelines</p></div></div>
+    <button class="btn btn-danger" id="btn-signout" style="margin-top:16px">Sign Out</button>`;
+}
+
+// ==========================================
+// MODALS
+// ==========================================
+function showModal(title, content, onSave, saveLabel='Save') {
+  const ov=document.createElement('div'); ov.className='modal-overlay';
+  ov.innerHTML=`<div class="modal-sheet"><div class="modal-handle"></div><div class="modal-header"><button id="mc">Cancel</button><h2>${title}</h2><button id="ms" style="color:var(--accent)">${saveLabel}</button></div><div class="modal-body">${content}</div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#mc').onclick=()=>ov.remove();
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  if(onSave) ov.querySelector('#ms').onclick=async()=>{const b=ov.querySelector('#ms');b.textContent='Saving...';b.disabled=true;try{await onSave(ov);ov.remove();render();}catch(e){toast(e.message);b.textContent=saveLabel;b.disabled=false;}};
+  return ov;
+}
+
+function showClientModal(c) {
+  const ed=!!c;
+  const html=`<div class="form-group"><label class="form-label">Client Name *</label><input type="text" class="form-input" id="f-name" value="${c?.name||''}" placeholder="Full name"></div>
+    <div class="form-group"><label class="form-label">Client ID / Medicaid ID</label><input type="text" class="form-input" id="f-cid" value="${c?.client_ext_id||''}" placeholder="Enter ID"></div>
+    <div class="form-group"><label class="form-label">Date of Birth</label><input type="date" class="form-input" id="f-dob" value="${c?.dob||''}"></div>
+    <div class="form-group"><label class="form-label">Diagnosis</label><input type="text" class="form-input" id="f-diag" value="${c?.diagnosis||''}" placeholder="e.g., Autism Spectrum Disorder"></div>
+    <div class="form-group"><label class="form-label">Monthly Budget (Units)</label><input type="number" class="form-input" id="f-bud" value="${c?.monthly_budget_units||''}" placeholder="e.g., 120" min="0"><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;padding-left:4px">1 unit = 15 min · 120 units = 30 hrs/month</div></div>
+    <div class="form-group"><label class="form-label">Waiver Type</label><select class="form-select" id="f-wt"><option value="FSW" ${c?.waiver_type==='FSW'?'selected':''}>Family Supports Waiver (FSW)</option><option value="CIH" ${c?.waiver_type==='CIH'?'selected':''}>Community Integration & Habilitation (CIH)</option><option value="HW" ${c?.waiver_type==='HW'?'selected':''}>Health & Wellness (H&W)</option><option value="TBI" ${c?.waiver_type==='TBI'?'selected':''}>Traumatic Brain Injury (TBI)</option><option value="Other" ${c?.waiver_type==='Other'?'selected':''}>Other</option></select></div>
+    <div class="form-group"><label class="form-label">Authorization Number</label><input type="text" class="form-input" id="f-auth" value="${c?.auth_number||''}" placeholder="Prior auth #"></div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="f-notes" placeholder="Notes...">${c?.notes||''}</textarea></div>
+    ${ed?'<button class="btn btn-danger" id="btn-del-c" style="margin-top:8px">Delete Client</button>':''}`;
+  const m=showModal(ed?'Edit Client':'New Client',html,async(ov)=>{
+    const name=ov.querySelector('#f-name').value.trim();
+    if(!name) throw new Error('Client name required');
+    await saveClient({id:c?.id,name,clientId:ov.querySelector('#f-cid').value.trim(),dob:ov.querySelector('#f-dob').value||null,diagnosis:ov.querySelector('#f-diag').value.trim(),monthlyBudgetUnits:+ov.querySelector('#f-bud').value||0,waiverType:ov.querySelector('#f-wt').value,authNumber:ov.querySelector('#f-auth').value.trim(),notes:ov.querySelector('#f-notes').value.trim(),created_at:c?.created_at});
+    toast(ed?'Client updated':'Client added');
+  });
+  if(ed) m.querySelector('#btn-del-c')?.addEventListener('click',async()=>{if(confirm('Delete client and all records?')){await deleteClient(c.id);m.remove();toast('Client deleted');render();}});
+}
+
+function showRecordModal(r, pcid) {
+  const ed=!!r, today=new Date().toISOString().split('T')[0];
+  const html=`<div class="form-group"><label class="form-label">Client *</label><select class="form-select" id="f-cli"><option value="">Select client</option>${A.clients.map(c=>`<option value="${c.id}" ${(r?.client_id||pcid)===c.id?'selected':''}>${c.name}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Date *</label><input type="date" class="form-input" id="f-date" value="${r?.date||today}"></div>
+    <div class="form-group"><label class="form-label">Service Code *</label><select class="form-select" id="f-code">${CODES.map(s=>`<option value="${s.code}" ${r?.service_code===s.code?'selected':''}>${s.code} — ${s.name} (${s.role})</option>`).join('')}</select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label class="form-label">Start Time</label><input type="time" class="form-input" id="f-st" value="${r?.start_time||''}"></div>
+      <div class="form-group"><label class="form-label">End Time</label><input type="time" class="form-input" id="f-et" value="${r?.end_time||''}"></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label class="form-label">Minutes</label><input type="number" class="form-input" id="f-min" value="${r?.minutes||''}" min="0" placeholder="Auto"></div>
+      <div class="form-group"><label class="form-label">Units (15-min)</label><input type="number" class="form-input" id="f-units" value="${r?.units||''}" min="0" placeholder="Auto"></div></div>
+    <div class="form-group"><label class="form-label">Location</label><select class="form-select" id="f-loc">${['Home','Clinic','School','Community','Telehealth','Other'].map(l=>`<option value="${l}" ${r?.location===l?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Status</label><select class="form-select" id="f-stat">${['pending','submitted','billed','denied'].map(s=>`<option value="${s}" ${r?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Session Notes</label><textarea class="form-textarea" id="f-rnotes" placeholder="Document session...">${r?.notes||''}</textarea></div>
+    <div class="form-group"><label class="form-label">Attachments</label><div id="flist" style="margin-bottom:8px"></div>
+      <div class="file-upload-area" id="fua"><i class="fas fa-cloud-upload-alt"></i><p>Tap to attach files</p><input type="file" id="finp" multiple style="display:none" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xlsx,.csv"></div></div>
+    ${ed?'<button class="btn btn-danger" id="btn-del-r" style="margin-top:8px">Delete Record</button>':''}`;
+
+  const m=showModal(ed?'Edit Record':'New Record',html,async(ov)=>{
+    const cid=ov.querySelector('#f-cli').value; if(!cid) throw new Error('Select a client');
+    const dt=ov.querySelector('#f-date').value; if(!dt) throw new Error('Select a date');
+    const code=ov.querySelector('#f-code').value, cn=CODES.find(s=>s.code===code)?.name||'';
+    const mins=+ov.querySelector('#f-min').value||0, units=+ov.querySelector('#f-units').value||calcUnits(mins);
+    const saved=await saveRecord({id:r?.id,clientId:cid,date:dt,serviceCode:code,serviceName:cn,startTime:ov.querySelector('#f-st').value,endTime:ov.querySelector('#f-et').value,minutes:mins,units,location:ov.querySelector('#f-loc').value,status:ov.querySelector('#f-stat').value,notes:ov.querySelector('#f-rnotes').value.trim(),created_at:r?.created_at});
+    const fi=ov.querySelector('#finp');
+    if(fi.files.length) for(const f of fi.files) { const d=await readFileB64(f); await saveFile({recordId:saved.id,name:f.name,type:f.type,size:f.size,data:d}); }
+    toast(ed?'Record updated':'Record saved');
+  });
+
+  // Auto-calc
+  const st=m.querySelector('#f-st'),et=m.querySelector('#f-et'),mi=m.querySelector('#f-min'),ui=m.querySelector('#f-units');
+  function ac(){const v=minsFromTimes(st.value,et.value);if(v>0){mi.value=v;ui.value=calcUnits(v);}}
+  st.onchange=ac; et.onchange=ac; mi.oninput=()=>{ui.value=calcUnits(+mi.value||0);};
+  m.querySelector('#fua').onclick=()=>m.querySelector('#finp').click();
+  m.querySelector('#finp').onchange=e=>{const fl=m.querySelector('#flist');let h='';for(const f of e.target.files)h+=`<span class="file-tag"><i class="fas fa-paperclip"></i> ${f.name}</span> `;fl.innerHTML+=h;};
+  if(ed) loadFiles(m,r.id);
+  if(ed) m.querySelector('#btn-del-r')?.addEventListener('click',async()=>{if(confirm('Delete record?')){await deleteRecord(r.id);m.remove();toast('Record deleted');render();}});
+}
+
+async function loadFiles(m, rid) {
+  const files=await getFiles(rid), fl=m.querySelector('#flist');
+  fl.innerHTML=files.map(f=>`<span class="file-tag"><i class="fas fa-paperclip"></i><a href="${f.data}" download="${f.name}" style="color:var(--accent);text-decoration:none">${f.name}</a><button data-df="${f.id}"><i class="fas fa-times"></i></button></span>`).join('');
+  fl.querySelectorAll('[data-df]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await deleteFile(b.dataset.df);toast('File removed');loadFiles(m,rid);});
+}
+
+function showClientDetail(cid) {
+  const c=A.clients.find(x=>x.id===cid); if(!c)return;
+  const mo=A.month, recs=clientRecs(cid,mo), used=recs.reduce((s,r)=>s+(r.units||0),0);
+  const b=c.monthly_budget_units||0, p=b?Math.round(used/b*100):0, cl=p>=90?'red':p>=70?'orange':'green';
+  const html=`<div style="text-align:center;padding:8px 0 16px"><div style="width:60px;height:60px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;margin:0 auto 10px"><i class="fas fa-user" style="font-size:24px;color:var(--accent)"></i></div><h3 style="font-size:20px;font-weight:700">${c.name}</h3><p style="font-size:13px;color:var(--text-tertiary)">${c.client_ext_id?'ID: '+c.client_ext_id:''} ${c.waiver_type?'· '+c.waiver_type+' Waiver':''}</p></div>
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px">
+      <div class="stat-card accent" style="padding:12px"><div class="stat-label" style="font-size:10px">Budget</div><div class="stat-value" style="font-size:22px">${b}</div><div class="stat-sub">units</div></div>
+      <div class="stat-card" style="padding:12px"><div class="stat-label" style="font-size:10px">Used</div><div class="stat-value" style="font-size:22px;color:var(--${cl})">${used}</div><div class="stat-sub">units</div></div>
+      <div class="stat-card" style="padding:12px"><div class="stat-label" style="font-size:10px">Left</div><div class="stat-value" style="font-size:22px;color:${b-used<0?'var(--red)':'var(--green)'}">${b-used}</div><div class="stat-sub">units</div></div></div>
+    <div class="progress-bar" style="margin-bottom:16px"><div class="progress-fill progress-${cl}" style="width:${Math.min(p,100)}%"></div></div>
+    ${c.diagnosis?`<p style="font-size:14px;margin-bottom:6px"><strong>Diagnosis:</strong> ${c.diagnosis}</p>`:''}
+    ${c.dob?`<p style="font-size:14px;margin-bottom:6px"><strong>DOB:</strong> ${fmtDate(c.dob)}</p>`:''}
+    ${c.auth_number?`<p style="font-size:14px;margin-bottom:6px"><strong>Auth #:</strong> ${c.auth_number}</p>`:''}
+    ${c.notes?`<p style="font-size:14px;margin-bottom:16px;color:var(--text-secondary)">${c.notes}</p>`:''}
+    <div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary btn-small" id="btn-arc" style="flex:1"><i class="fas fa-plus"></i> Add Record</button><button class="btn btn-secondary btn-small" id="btn-ecd" style="flex:1"><i class="fas fa-pen"></i> Edit</button></div>
+    <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${monthName(mo)} Sessions (${recs.length})</div>
+    ${!recs.length?'<p style="font-size:14px;color:var(--text-tertiary);text-align:center;padding:20px">No sessions this month</p>':''}
+    ${recs.map(r=>`<div class="record-item" data-er="${r.id}"><div class="record-top"><div><div class="record-date">${fmtDate(r.date)}</div><div class="record-code">${r.service_code} · ${r.start_time||''} — ${r.end_time||''}</div></div><div class="record-units">${r.units}u</div></div></div>`).join('')}`;
+  const m=showModal(c.name,html,null);
+  m.querySelector('#ms').style.display='none';
+  m.querySelector('#mc').textContent='Done';
+  m.querySelector('#btn-arc')?.addEventListener('click',()=>{m.remove();showRecordModal(null,cid);});
+  m.querySelector('#btn-ecd')?.addEventListener('click',()=>{m.remove();showClientModal(c);});
+  m.querySelectorAll('[data-er]').forEach(el=>el.onclick=()=>{const rec=A.records.find(r=>r.id===el.dataset.er);if(rec){m.remove();showRecordModal(rec);}});
+}
+
+// ==========================================
+// EVENT BINDING
+// ==========================================
+function bind() {
+  // Tabs
+  document.querySelectorAll('[data-tab]').forEach(t=>t.onclick=()=>{A.page=t.dataset.tab;render();});
+  // Setup
+  document.getElementById('btn-setup')?.addEventListener('click',()=>{
+    const u=document.getElementById('setup-url')?.value.trim(),k=document.getElementById('setup-key')?.value.trim(),err=document.getElementById('setup-error');
+    if(!u||!k){err.innerHTML='<div class="auth-error">Enter both URL and Key</div>';return;}
+    if(saveSBConfig(u,k)){toast('Connected!');render();}else{err.innerHTML='<div class="auth-error">Connection failed</div>';}
+  });
+  document.getElementById('btn-copy-sql')?.addEventListener('click',()=>{navigator.clipboard.writeText(document.getElementById('sql-block')?.textContent||'');toast('SQL copied');});
+  // Auth
+  document.getElementById('btn-auth')?.addEventListener('click',async()=>{
+    const e=document.getElementById('auth-email')?.value.trim(),p=document.getElementById('auth-password')?.value,n=document.getElementById('auth-name')?.value?.trim(),err=document.getElementById('auth-error');
+    if(!e||!p){err.innerHTML='<div class="auth-error">Fill in all fields</div>';return;}
+    if(p.length<6){err.innerHTML='<div class="auth-error">Password min 6 chars</div>';return;}
+    try{
+      if(A.authMode==='register'){if(!n){err.innerHTML='<div class="auth-error">Enter your name</div>';return;}const r=await doSignUp(e,p,n);if(r?.needsConfirm){err.innerHTML='<div class="auth-success"><i class="fas fa-check-circle"></i> Account created! Check email to confirm, then sign in.</div>';A.authMode='login';return;}}
+      else await doSignIn(e,p);
+      await loadClients();await loadRecords();render();
+    }catch(er){err.innerHTML=`<div class="auth-error">${er.message}</div>`;}
+  });
+  document.getElementById('btn-reset')?.addEventListener('click',async()=>{
+    const e=document.getElementById('reset-email')?.value.trim(),err=document.getElementById('auth-error');
+    if(!e){err.innerHTML='<div class="auth-error">Enter email</div>';return;}
+    try{await doResetPw(e);err.innerHTML='<div class="auth-success"><i class="fas fa-check-circle"></i> Reset link sent! Check email.</div>';}catch(er){err.innerHTML=`<div class="auth-error">${er.message}</div>`;}
+  });
+  document.getElementById('goto-register')?.addEventListener('click',()=>{A.authMode='register';render();});
+  document.getElementById('goto-login')?.addEventListener('click',()=>{A.authMode='login';render();});
+  document.getElementById('goto-reset')?.addEventListener('click',()=>{A.authMode='reset';render();});
+  document.getElementById('goto-setup')?.addEventListener('click',()=>{sb=null;render();});
+  document.getElementById('btn-signout')?.addEventListener('click',doSignOut);
+  // Month pickers
+  document.getElementById('dash-month')?.addEventListener('change',e=>{A.month=e.target.value;render();});
+  document.getElementById('rec-month')?.addEventListener('change',e=>{A.month=e.target.value;render();});
+  // Client filter
+  document.getElementById('rec-cf')?.addEventListener('change',e=>{const v=e.target.value;document.querySelectorAll('.record-item').forEach(i=>{const r=A.records.find(x=>x.id===i.dataset.er);i.style.display=(v&&r&&r.client_id!==v)?'none':'';});});
+  // Search
+  document.getElementById('cli-search')?.addEventListener('input',e=>{A.search=e.target.value;render();const i=document.getElementById('cli-search');if(i){i.focus();i.selectionStart=i.selectionEnd=i.value.length;}});
+  // Buttons
+  document.getElementById('btn-add-client')?.addEventListener('click',()=>showClientModal());
+  document.getElementById('btn-add-record')?.addEventListener('click',()=>showRecordModal());
+  document.getElementById('btn-export')?.addEventListener('click',exportXL);
+  document.getElementById('btn-exp-rec')?.addEventListener('click',exportXL);
+  // View/edit
+  document.querySelectorAll('[data-vc]').forEach(el=>el.onclick=()=>showClientDetail(el.dataset.vc));
+  document.querySelectorAll('[data-er]').forEach(el=>el.onclick=()=>{const r=A.records.find(x=>x.id===el.dataset.er);if(r)showRecordModal(r);});
+  // Settings
+  document.getElementById('btn-imp-xl')?.addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='.xlsx,.xls,.csv';i.onchange=e=>{if(e.target.files[0])importXL(e.target.files[0]);};i.click();});
+  document.getElementById('btn-exp-xl')?.addEventListener('click',exportXL);
+  document.getElementById('btn-exp-all')?.addEventListener('click',exportAll);
+  document.getElementById('btn-chg-db')?.addEventListener('click',()=>{sb=null;render();});
+  // Enter keys
+  ['auth-email','auth-password','auth-name'].forEach(id=>{document.getElementById(id)?.addEventListener('keypress',e=>{if(e.key==='Enter')document.getElementById('btn-auth')?.click();});});
+  document.getElementById('reset-email')?.addEventListener('keypress',e=>{if(e.key==='Enter')document.getElementById('btn-reset')?.click();});
+}
+
+// ==========================================
+// INIT
+// ==========================================
+async function init() {
+  loadSBConfig();
+  if(sbOk()){
+    const ok=await checkSession();
+    if(ok){await loadClients();await loadRecords();}
+  }
+  render();
+  if(sbOk()) sb.auth.onAuthStateChange(async(ev,sess)=>{
+    if(ev==='SIGNED_IN'&&sess?.user){A.user={id:sess.user.id,email:sess.user.email,name:sess.user.user_metadata?.full_name||sess.user.email.split('@')[0]};await loadClients();await loadRecords();render();}
+    else if(ev==='SIGNED_OUT'){A.user=null;A.clients=[];A.records=[];render();}
+  });
+}
+init();
+</script>
+</body>
+</html>
