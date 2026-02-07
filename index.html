@@ -177,9 +177,16 @@ async function doSignUp(email, pw, name) {
   if (!sbOk()) throw new Error('Database not configured.');
   const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { full_name: name } } });
   if (error) throw error;
-  if (data.user && !data.session) return { needsConfirm: true };
-  A.user = { id: data.user.id, email: data.user.email, name };
-  return data;
+  // If session returned directly (auto-confirm enabled), use it
+  if (data.session) {
+    A.user = { id: data.user.id, email: data.user.email, name };
+    return data;
+  }
+  // Otherwise auto sign-in immediately after registration
+  const { data: signInData, error: signInError } = await sb.auth.signInWithPassword({ email, password: pw });
+  if (signInError) throw signInError;
+  A.user = { id: signInData.user.id, email: signInData.user.email, name };
+  return signInData;
 }
 async function doSignIn(email, pw) {
   if (!sbOk()) throw new Error('Database not configured.');
@@ -373,6 +380,7 @@ function renderSetup() {
         <li>Create a new project (any name, set a DB password, pick a region)</li>
         <li>Go to <strong>Project Settings → API</strong></li>
         <li>Copy your <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
+        <li>Go to <strong>Authentication → Settings → Email</strong> and <strong>turn OFF</strong> "Confirm email"</li>
         <li>Go to <strong>SQL Editor</strong> and run the setup SQL (below)</li>
       </ol>
     </div>
@@ -669,7 +677,7 @@ function bind() {
     if(!e||!p){err.innerHTML='<div class="auth-error">Fill in all fields</div>';return;}
     if(p.length<6){err.innerHTML='<div class="auth-error">Password min 6 chars</div>';return;}
     try{
-      if(A.authMode==='register'){if(!n){err.innerHTML='<div class="auth-error">Enter your name</div>';return;}const r=await doSignUp(e,p,n);if(r?.needsConfirm){err.innerHTML='<div class="auth-success"><i class="fas fa-check-circle"></i> Account created! Check email to confirm, then sign in.</div>';A.authMode='login';return;}}
+      if(A.authMode==='register'){if(!n){err.innerHTML='<div class="auth-error">Enter your name</div>';return;}await doSignUp(e,p,n);}
       else await doSignIn(e,p);
       await loadClients();await loadRecords();render();
     }catch(er){err.innerHTML=`<div class="auth-error">${er.message}</div>`;}

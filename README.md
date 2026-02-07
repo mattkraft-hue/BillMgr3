@@ -5,7 +5,7 @@ A mobile-optimized web app for BCBA behavior analysts to track billing time with
 ## Features
 
 - **Persistent Cloud Storage** — All data stored in Supabase (PostgreSQL). Syncs across devices. Never lose data.
-- **Secure Auth** — Real email/password authentication via Supabase Auth with email confirmation and password reset.
+- **Secure Auth** — Real email/password authentication via Supabase Auth (no email confirmation required).
 - **Row Level Security** — Each user can only see their own data, enforced at the database level.
 - **Client Management** — Medicaid ID, diagnosis, waiver type, authorization numbers, monthly unit budgets.
 - **Billing Records** — Indiana waiver service codes (97151–97158, H0031, H2014, H2019, T1024), auto-calculated units.
@@ -75,17 +75,22 @@ CREATE POLICY "Users own files" ON files FOR ALL
   USING (EXISTS (SELECT 1 FROM records WHERE records.id = files.record_id AND records.user_id = auth.uid()));
 ```
 
-### 3. Get API Credentials
+### 3. Disable Email Confirmation
+1. In your Supabase dashboard, go to **Authentication → Settings → Email**
+2. **Turn OFF** "Confirm email"
+3. This allows users to sign in immediately after creating an account
+
+### 4. Get API Credentials
 1. Go to **Settings → API** in your Supabase dashboard
 2. Copy your **Project URL** and **anon public key**
 
-### 4. Deploy to GitHub Pages
+### 5. Deploy to GitHub Pages
 1. Create a new GitHub repository
 2. Upload `index.html`, `manifest.json`, and `README.md`
 3. Go to **Settings → Pages** → select `main` branch → Save
 4. Your app will be live at `https://yourusername.github.io/repo-name/`
 
-### 5. Connect the App
+### 6. Connect the App
 1. Open your deployed app
 2. Paste your Supabase URL and anon key on the setup screen
 3. Click **Connect & Continue**
@@ -96,7 +101,7 @@ CREATE POLICY "Users own files" ON files FOR ALL
 | Feature | Details |
 |---------|---------|
 | **Database** | Supabase (PostgreSQL) — free tier: 500MB, unlimited API requests |
-| **Auth** | Supabase Auth — email/password with email confirmation |
+| **Auth** | Supabase Auth — email/password, no email confirmation required |
 | **Security** | Row Level Security — users only see their own data |
 | **Sync** | Real-time sync across all devices and browsers |
 | **Files** | Stored as base64 in the database (suitable for session notes/small docs) |
