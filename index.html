@@ -9,10 +9,8 @@
 <title>BCBA Billing Tracker</title>
 <link rel="manifest" href="manifest.json">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script>
 <style>
 :root{--bg-primary:#f2f2f7;--bg-secondary:#ffffff;--bg-tertiary:#e5e5ea;--text-primary:#1c1c1e;--text-secondary:#3a3a3c;--text-tertiary:#8e8e93;--accent:#007aff;--accent-light:#e8f2ff;--green:#34c759;--orange:#ff9500;--red:#ff3b30;--purple:#af52de;--separator:rgba(60,60,67,0.12);--card-shadow:0 1px 3px rgba(0,0,0,0.08);--radius:12px;--radius-lg:16px;--safe-top:env(safe-area-inset-top,20px);--safe-bottom:env(safe-area-inset-bottom,0px);--tab-height:82px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -23,7 +21,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue'
 .nav-actions button{width:36px;height:36px;border-radius:50%;border:none;background:var(--accent-light);color:var(--accent);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s}
 .nav-actions button:active{transform:scale(0.9)}
 .tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(242,242,247,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--separator);display:flex;justify-content:space-around;padding:6px 0 calc(6px + var(--safe-bottom));height:var(--tab-height)}
-.tab-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text-tertiary);font-size:10px;font-weight:500;cursor:pointer;padding:4px 12px;min-width:64px;transition:color .2s}
+.tab-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text-tertiary);font-size:10px;font-weight:500;cursor:pointer;padding:4px 8px;min-width:56px;transition:color .2s}
 .tab-item.active{color:var(--accent)}.tab-item i{font-size:22px}
 .content{padding:calc(var(--safe-top) + 80px) 16px calc(var(--tab-height) + 16px);max-width:600px;margin:0 auto}
 .card{background:var(--bg-secondary);border-radius:var(--radius-lg);box-shadow:var(--card-shadow);margin-bottom:12px;overflow:hidden}
@@ -150,7 +148,7 @@ function saveSBConfig(url, key) {
 // APP STATE & SERVICE CODES
 // ==========================================
 const A = {
-  user: null, page: 'dashboard', clients: [], records: [],
+  user: null, page: 'dashboard', clients: [], records: [], trainings: [],
   search: '', month: new Date().toISOString().slice(0,7),
   authMode: 'login', sync: 'offline'
 };
@@ -179,16 +177,9 @@ async function doSignUp(email, pw, name) {
   if (!sbOk()) throw new Error('Database not configured.');
   const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { full_name: name } } });
   if (error) throw error;
-  // If session returned directly (auto-confirm enabled), use it
-  if (data.session) {
-    A.user = { id: data.user.id, email: data.user.email, name };
-    return data;
-  }
-  // Otherwise auto sign-in immediately after registration
-  const { data: signInData, error: signInError } = await sb.auth.signInWithPassword({ email, password: pw });
-  if (signInError) throw signInError;
-  A.user = { id: signInData.user.id, email: signInData.user.email, name };
-  return signInData;
+  if (data.user && !data.session) return { needsConfirm: true };
+  A.user = { id: data.user.id, email: data.user.email, name };
+  return data;
 }
 async function doSignIn(email, pw) {
   if (!sbOk()) throw new Error('Database not configured.');
@@ -203,7 +194,7 @@ async function doResetPw(email) {
 }
 async function doSignOut() {
   if (sbOk()) await sb.auth.signOut();
-  A.user = null; A.clients = []; A.records = []; render();
+  A.user = null; A.clients = []; A.records = []; A.trainings = []; render();
 }
 async function checkSession() {
   if (!sbOk()) return false;
@@ -310,6 +301,47 @@ async function getFiles(recordId) {
 async function deleteFile(id) { if (sbOk()) await sb.from('files').delete().eq('id', id); }
 
 // ==========================================
+// TRAINING SESSION OPS
+// ==========================================
+async function loadTrainings() {
+  if (!A.user || !sbOk()) return;
+  try {
+    const { data, error } = await sb.from('trainings').select('*').eq('user_id', A.user.id).order('date', { ascending: false });
+    if (error) throw error;
+    A.trainings = data || [];
+  } catch(e) { console.error(e); }
+}
+
+async function saveTraining(d) {
+  if (!sbOk()) throw new Error('Database not configured');
+  const r = {
+    id: d.id || gid(), user_id: A.user.id,
+    client_id: d.clientId || d.client_id || null,
+    title: d.title || '',
+    date: d.date,
+    start_time: d.startTime || d.start_time || '',
+    end_time: d.endTime || d.end_time || '',
+    duration_minutes: parseInt(d.durationMinutes || d.duration_minutes) || 0,
+    cost: d.cost !== '' && d.cost != null ? parseFloat(d.cost) : null,
+    attendees: typeof d.attendees === 'string' ? d.attendees : JSON.stringify(d.attendees || []),
+    notes: d.notes || '',
+    location: d.location || '',
+    status: d.status || 'scheduled',
+    created_at: d.created_at || new Date().toISOString(),
+  };
+  const { error } = await sb.from('trainings').upsert(r);
+  if (error) throw error;
+  await loadTrainings();
+  return r;
+}
+
+async function deleteTraining(id) {
+  const { error } = await sb.from('trainings').delete().eq('id', id);
+  if (error) throw error;
+  await loadTrainings();
+}
+
+// ==========================================
 // UTILITIES
 // ==========================================
 function calcUnits(m) { return m < 8 ? 0 : Math.floor((m+7)/15); }
@@ -353,322 +385,10 @@ async function importXL(file) {
 }
 
 async function exportAll() {
-  const d={v:2,date:new Date().toISOString(),clients:A.clients,records:A.records};
+  const d={v:2,date:new Date().toISOString(),clients:A.clients,records:A.records,trainings:A.trainings};
   const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`bcba_backup_${new Date().toISOString().split('T')[0]}.json`; a.click();
   toast('Backup exported');
-}
-
-// ==========================================
-// PDF PRINTING
-// ==========================================
-function showPrintModal() {
-  const today = new Date().toISOString().split('T')[0];
-  const moStart = A.month + '-01';
-  const moEnd = new Date(+A.month.split('-')[0], +A.month.split('-')[1], 0).toISOString().split('T')[0];
-  const html = `
-    <div class="form-group"><label class="form-label">Print Mode</label>
-      <select class="form-select" id="pr-mode">
-        <option value="all">All Clients — Monthly Summary</option>
-        <option value="single">Individual Client — Date Range</option>
-      </select></div>
-    <div id="pr-single-opts" style="display:none">
-      <div class="form-group"><label class="form-label">Client</label>
-        <select class="form-select" id="pr-client"><option value="">Select client</option>${A.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-input" id="pr-start" value="${moStart}"></div>
-        <div class="form-group"><label class="form-label">End Date</label><input type="date" class="form-input" id="pr-end" value="${moEnd}"></div>
-      </div>
-    </div>
-    <div id="pr-all-opts">
-      <div class="form-group"><label class="form-label">Month</label><input type="month" class="form-input" id="pr-month" value="${A.month}"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Include</label>
-      <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:15px"><input type="checkbox" id="pr-inc-notes" checked> Session Notes</label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:15px"><input type="checkbox" id="pr-inc-budget" checked> Budget Summary</label>
-      </div></div>`;
-
-  const m = showModal('Print Records', html, async (ov) => {
-    const mode = ov.querySelector('#pr-mode').value;
-    const incNotes = ov.querySelector('#pr-inc-notes').checked;
-    const incBudget = ov.querySelector('#pr-inc-budget').checked;
-    if (mode === 'single') {
-      const cid = ov.querySelector('#pr-client').value;
-      if (!cid) throw new Error('Select a client');
-      const start = ov.querySelector('#pr-start').value;
-      const end = ov.querySelector('#pr-end').value;
-      if (!start || !end) throw new Error('Select date range');
-      generateClientPDF(cid, start, end, incNotes, incBudget);
-    } else {
-      const mo = ov.querySelector('#pr-month').value;
-      if (!mo) throw new Error('Select a month');
-      generateAllClientsPDF(mo, incNotes, incBudget);
-    }
-    toast('PDF generated');
-  }, 'Generate PDF');
-
-  // Toggle single/all options
-  const modeSelect = m.querySelector('#pr-mode');
-  modeSelect.addEventListener('change', () => {
-    const isSingle = modeSelect.value === 'single';
-    m.querySelector('#pr-single-opts').style.display = isSingle ? '' : 'none';
-    m.querySelector('#pr-all-opts').style.display = isSingle ? 'none' : '';
-  });
-}
-
-function pdfHeader(doc, title, subtitle) {
-  const pw = doc.internal.pageSize.getWidth();
-  // Blue header bar
-  doc.setFillColor(0, 122, 255);
-  doc.rect(0, 0, pw, 28, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.text(title, 14, 12);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(subtitle, 14, 20);
-  // Right side: generated date
-  doc.setFontSize(8);
-  doc.text('Generated: ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), pw - 14, 20, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  return 34;
-}
-
-function pdfSectionTitle(doc, y, text) {
-  const pw = doc.internal.pageSize.getWidth();
-  doc.setFillColor(242, 242, 247);
-  doc.rect(14, y - 5, pw - 28, 9, 'F');
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(80, 80, 80);
-  doc.text(text, 16, y + 1);
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'normal');
-  return y + 10;
-}
-
-function generateClientPDF(cid, startDate, endDate, incNotes, incBudget) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
-  const c = A.clients.find(x => x.id === cid);
-  if (!c) return;
-
-  const recs = A.records.filter(r => r.client_id === cid && r.date >= startDate && r.date <= endDate).sort((a, b) => a.date.localeCompare(b.date));
-  const totalUnits = recs.reduce((s, r) => s + (r.units || 0), 0);
-  const totalMins = recs.reduce((s, r) => s + (r.minutes || 0), 0);
-
-  // Header
-  let y = pdfHeader(doc, c.name, 'Billing Records: ' + fmtDate(startDate) + ' — ' + fmtDate(endDate));
-
-  // Client info
-  y = pdfSectionTitle(doc, y, 'CLIENT INFORMATION');
-  doc.setFontSize(9);
-  const info = [
-    ['Client ID', c.client_ext_id || 'N/A'],
-    ['Date of Birth', c.dob ? fmtDate(c.dob) : 'N/A'],
-    ['Diagnosis', c.diagnosis || 'N/A'],
-    ['Waiver Type', c.waiver_type || 'N/A'],
-    ['Auth Number', c.auth_number || 'N/A'],
-    ['Monthly Budget', (c.monthly_budget_units || 0) + ' units (' + ((c.monthly_budget_units || 0) * 15) + ' min)'],
-  ];
-  info.forEach(([label, val]) => {
-    doc.setFont('helvetica', 'bold');
-    doc.text(label + ':', 16, y);
-    doc.setFont('helvetica', 'normal');
-    doc.text(val, 55, y);
-    y += 5;
-  });
-  y += 4;
-
-  // Budget bar if requested
-  if (incBudget && c.monthly_budget_units) {
-    y = pdfSectionTitle(doc, y, 'BUDGET SUMMARY');
-    const budget = c.monthly_budget_units;
-    const pct = Math.min(Math.round(totalUnits / budget * 100), 100);
-    doc.setFontSize(9);
-    doc.text(`Used: ${totalUnits} / ${budget} units (${pct}%)   |   Remaining: ${budget - totalUnits} units`, 16, y);
-    y += 5;
-    // Draw progress bar
-    const barW = 160, barH = 4;
-    doc.setFillColor(229, 229, 234);
-    doc.roundedRect(16, y, barW, barH, 2, 2, 'F');
-    const fillColor = pct >= 90 ? [255, 59, 48] : pct >= 70 ? [255, 149, 0] : [52, 199, 89];
-    doc.setFillColor(...fillColor);
-    doc.roundedRect(16, y, barW * (pct / 100), barH, 2, 2, 'F');
-    y += 12;
-  }
-
-  // Records table
-  y = pdfSectionTitle(doc, y, `SESSION RECORDS (${recs.length} sessions · ${totalUnits} units · ${totalMins} min)`);
-
-  if (!recs.length) {
-    doc.setFontSize(10);
-    doc.text('No records found for this date range.', 16, y + 4);
-  } else {
-    const cols = ['Date', 'Code', 'Service', 'Start', 'End', 'Min', 'Units', 'Location', 'Status'];
-    if (incNotes) cols.push('Notes');
-    const rows = recs.map(r => {
-      const row = [r.date, r.service_code, (r.service_name || '').substring(0, 20), r.start_time || '', r.end_time || '', r.minutes || 0, r.units || 0, r.location || '', r.status || ''];
-      if (incNotes) row.push((r.notes || '').substring(0, 60));
-      return row;
-    });
-    // Totals row
-    const totals = ['TOTAL', '', '', '', '', totalMins, totalUnits, '', ''];
-    if (incNotes) totals.push('');
-    rows.push(totals);
-
-    doc.autoTable({
-      startY: y,
-      head: [cols],
-      body: rows,
-      margin: { left: 14, right: 14 },
-      styles: { fontSize: 7, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.1 },
-      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold', fontSize: 7 },
-      alternateRowStyles: { fillColor: [248, 248, 252] },
-      didParseCell: function(data) {
-        // Bold totals row
-        if (data.row.index === rows.length - 1) {
-          data.cell.styles.fontStyle = 'bold';
-          data.cell.styles.fillColor = [232, 242, 255];
-        }
-      },
-      columnStyles: incNotes ? { 9: { cellWidth: 40 } } : {},
-    });
-  }
-
-  doc.save(`${c.name.replace(/[^a-zA-Z0-9]/g, '_')}_${startDate}_to_${endDate}.pdf`);
-}
-
-function generateAllClientsPDF(mo, incNotes, incBudget) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
-  const moRecs = A.records.filter(r => r.date && r.date.startsWith(mo));
-
-  if (!moRecs.length) { toast('No records for this month'); return; }
-
-  const totalUnits = moRecs.reduce((s, r) => s + (r.units || 0), 0);
-  const totalMins = moRecs.reduce((s, r) => s + (r.minutes || 0), 0);
-  const totalBudget = A.clients.reduce((s, c) => s + (c.monthly_budget_units || 0), 0);
-
-  // Page 1: Summary
-  let y = pdfHeader(doc, 'Monthly Billing Report', monthName(mo) + ' — All Clients');
-
-  // Summary stats
-  if (incBudget) {
-    y = pdfSectionTitle(doc, y, 'MONTHLY OVERVIEW');
-    doc.setFontSize(9);
-    const stats = [
-      `Total Sessions: ${moRecs.length}`,
-      `Total Units: ${totalUnits}`,
-      `Total Minutes: ${totalMins} (${(totalMins / 60).toFixed(1)} hrs)`,
-      `Total Budget: ${totalBudget} units`,
-      `Budget Used: ${totalBudget ? Math.round(totalUnits / totalBudget * 100) : 0}%`,
-      `Clients Served: ${[...new Set(moRecs.map(r => r.client_id))].length} of ${A.clients.length}`,
-    ];
-    stats.forEach((s, i) => {
-      doc.text(s, 16 + (i % 3) * 90, y + Math.floor(i / 3) * 5);
-    });
-    y += Math.ceil(stats.length / 3) * 5 + 6;
-
-    // Budget table per client
-    y = pdfSectionTitle(doc, y, 'CLIENT BUDGET SUMMARY');
-    const budgetRows = A.clients.map(c => {
-      const used = moRecs.filter(r => r.client_id === c.id).reduce((s, r) => s + (r.units || 0), 0);
-      const bud = c.monthly_budget_units || 0;
-      const pct = bud ? Math.round(used / bud * 100) : 0;
-      const sessions = moRecs.filter(r => r.client_id === c.id).length;
-      return [c.name, c.client_ext_id || '', c.waiver_type || '', bud, used, bud - used, pct + '%', sessions];
-    });
-    // Total row
-    budgetRows.push(['TOTAL', '', '', totalBudget, totalUnits, totalBudget - totalUnits, (totalBudget ? Math.round(totalUnits / totalBudget * 100) : 0) + '%', moRecs.length]);
-
-    doc.autoTable({
-      startY: y,
-      head: [['Client', 'ID', 'Waiver', 'Budget', 'Used', 'Remaining', '% Used', 'Sessions']],
-      body: budgetRows,
-      margin: { left: 14, right: 14 },
-      styles: { fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1 },
-      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 248, 252] },
-      didParseCell: function(data) {
-        if (data.row.index === budgetRows.length - 1) {
-          data.cell.styles.fontStyle = 'bold';
-          data.cell.styles.fillColor = [232, 242, 255];
-        }
-        // Color the % Used column
-        if (data.column.index === 6 && data.row.index < budgetRows.length - 1) {
-          const pctVal = parseInt(data.cell.raw);
-          if (pctVal >= 90) data.cell.styles.textColor = [255, 59, 48];
-          else if (pctVal >= 70) data.cell.styles.textColor = [255, 149, 0];
-          else data.cell.styles.textColor = [52, 199, 89];
-        }
-      },
-    });
-  }
-
-  // One page per client with records
-  const clientsWithRecs = A.clients.filter(c => moRecs.some(r => r.client_id === c.id));
-  clientsWithRecs.forEach(c => {
-    doc.addPage('landscape');
-    const cRecs = moRecs.filter(r => r.client_id === c.id).sort((a, b) => a.date.localeCompare(b.date));
-    const cUnits = cRecs.reduce((s, r) => s + (r.units || 0), 0);
-    const cMins = cRecs.reduce((s, r) => s + (r.minutes || 0), 0);
-    const bud = c.monthly_budget_units || 0;
-    const pct = bud ? Math.round(cUnits / bud * 100) : 0;
-
-    let cy = pdfHeader(doc, c.name, monthName(mo) + ' · ' + (c.client_ext_id ? 'ID: ' + c.client_ext_id + ' · ' : '') + (c.waiver_type || '') + ' Waiver');
-
-    // Client summary line
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Sessions: ${cRecs.length}   |   Units: ${cUnits}/${bud} (${pct}%)   |   Minutes: ${cMins}   |   Auth#: ${c.auth_number || 'N/A'}   |   Dx: ${c.diagnosis || 'N/A'}`, 16, cy);
-    doc.setFont('helvetica', 'normal');
-    cy += 4;
-
-    // Progress bar
-    if (bud) {
-      const barW = 240, barH = 3;
-      doc.setFillColor(229, 229, 234);
-      doc.roundedRect(16, cy, barW, barH, 1.5, 1.5, 'F');
-      const fillColor = pct >= 90 ? [255, 59, 48] : pct >= 70 ? [255, 149, 0] : [52, 199, 89];
-      doc.setFillColor(...fillColor);
-      doc.roundedRect(16, cy, barW * (Math.min(pct, 100) / 100), barH, 1.5, 1.5, 'F');
-      cy += 8;
-    } else { cy += 4; }
-
-    // Records table
-    const cols = ['Date', 'Code', 'Service', 'Start', 'End', 'Min', 'Units', 'Location', 'Status'];
-    if (incNotes) cols.push('Notes');
-    const rows = cRecs.map(r => {
-      const row = [r.date, r.service_code, (r.service_name || '').substring(0, 25), r.start_time || '', r.end_time || '', r.minutes || 0, r.units || 0, r.location || '', r.status || ''];
-      if (incNotes) row.push((r.notes || '').substring(0, 80));
-      return row;
-    });
-    const totals = ['TOTAL', '', '', '', '', cMins, cUnits, '', ''];
-    if (incNotes) totals.push('');
-    rows.push(totals);
-
-    doc.autoTable({
-      startY: cy,
-      head: [cols],
-      body: rows,
-      margin: { left: 14, right: 14 },
-      styles: { fontSize: 7.5, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.1 },
-      headStyles: { fillColor: [0, 122, 255], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 248, 252] },
-      didParseCell: function(data) {
-        if (data.row.index === rows.length - 1) {
-          data.cell.styles.fontStyle = 'bold';
-          data.cell.styles.fillColor = [232, 242, 255];
-        }
-      },
-      columnStyles: incNotes ? { 9: { cellWidth: 55 } } : {},
-    });
-  });
-
-  doc.save(`BCBA_Billing_${mo}_All_Clients.pdf`);
 }
 
 // ==========================================
@@ -694,7 +414,6 @@ function renderSetup() {
         <li>Create a new project (any name, set a DB password, pick a region)</li>
         <li>Go to <strong>Project Settings → API</strong></li>
         <li>Copy your <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
-        <li>Go to <strong>Authentication → Settings → Email</strong> and <strong>turn OFF</strong> "Confirm email"</li>
         <li>Go to <strong>SQL Editor</strong> and run the setup SQL (below)</li>
       </ol>
     </div>
@@ -758,7 +477,27 @@ CREATE TABLE IF NOT EXISTS files (
 );
 ALTER TABLE files ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users own files" ON files FOR ALL
-  USING (EXISTS (SELECT 1 FROM records WHERE records.id = files.record_id AND records.user_id = auth.uid()));</div>
+  USING (EXISTS (SELECT 1 FROM records WHERE records.id = files.record_id AND records.user_id = auth.uid()));
+
+-- Training sessions table
+CREATE TABLE IF NOT EXISTS trainings (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  date DATE NOT NULL,
+  start_time TEXT DEFAULT '',
+  end_time TEXT DEFAULT '',
+  duration_minutes INTEGER DEFAULT 0,
+  cost DECIMAL(10,2),
+  attendees TEXT DEFAULT '[]',
+  notes TEXT DEFAULT '',
+  location TEXT DEFAULT '',
+  status TEXT DEFAULT 'scheduled',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE trainings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users own trainings" ON trainings FOR ALL USING (auth.uid() = user_id);</div>
       <button class="btn btn-secondary btn-small" id="btn-copy-sql" style="margin-top:8px;display:inline-block"><i class="fas fa-copy"></i> Copy SQL</button>
     </div>
   </div>`;
@@ -787,23 +526,24 @@ function renderAuth() {
 }
 
 function renderNav() {
-  const t={dashboard:'Dashboard',clients:'Clients',records:'Records',settings:'Settings'};
+  const t={dashboard:'Dashboard',clients:'Clients',records:'Records',training:'Training',settings:'Settings'};
   const acts={
-    dashboard:`<span class="sync-indicator" id="sync-badge"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':A.sync==='syncing'?'Syncing...':'Offline'}</span><button id="btn-print" title="Print PDF"><i class="fas fa-print"></i></button><button id="btn-export" title="Export"><i class="fas fa-file-export"></i></button>`,
+    dashboard:`<span class="sync-indicator" id="sync-badge"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':A.sync==='syncing'?'Syncing...':'Offline'}</span><button id="btn-export" title="Export"><i class="fas fa-file-export"></i></button>`,
     clients:`<button id="btn-add-client"><i class="fas fa-plus"></i></button>`,
     records:`<button id="btn-add-record"><i class="fas fa-plus"></i></button>`,
+    training:`<button id="btn-add-training"><i class="fas fa-plus"></i></button>`,
     settings:''
   };
   return `<div class="nav-bar"><h1>${t[A.page]}</h1><div class="subtitle">${A.page==='dashboard'?monthName(A.month):''}</div><div class="nav-actions">${acts[A.page]||''}</div></div>`;
 }
 
 function renderTabs() {
-  const tabs=[{id:'dashboard',icon:'fas fa-chart-pie',l:'Dashboard'},{id:'clients',icon:'fas fa-users',l:'Clients'},{id:'records',icon:'fas fa-clock',l:'Records'},{id:'settings',icon:'fas fa-gear',l:'Settings'}];
+  const tabs=[{id:'dashboard',icon:'fas fa-chart-pie',l:'Dashboard'},{id:'clients',icon:'fas fa-users',l:'Clients'},{id:'records',icon:'fas fa-clock',l:'Records'},{id:'training',icon:'fas fa-chalkboard-teacher',l:'Training'},{id:'settings',icon:'fas fa-gear',l:'Settings'}];
   return `<div class="tab-bar">${tabs.map(t=>`<button class="tab-item ${A.page===t.id?'active':''}" data-tab="${t.id}"><i class="${t.icon}"></i><span>${t.l}</span></button>`).join('')}</div>`;
 }
 
 function renderPage() {
-  const p={dashboard:pgDash,clients:pgClients,records:pgRecords,settings:pgSettings};
+  const p={dashboard:pgDash,clients:pgClients,records:pgRecords,training:pgTraining,settings:pgSettings};
   return `<div class="content">${(p[A.page]||pgDash)()}</div>`;
 }
 
@@ -831,7 +571,8 @@ function pgDash() {
       ${mr.slice(0,5).map(r=>{const c=A.clients.find(x=>x.id===r.client_id);
         return`<div class="card-row" data-er="${r.id}"><div><div class="label">${c?c.name:'Unknown'}</div><div style="font-size:12px;color:var(--text-tertiary)">${fmtDate(r.date)} · ${r.service_code}</div></div><div class="value"><span style="font-weight:600;color:var(--accent)">${r.units}u</span><i class="fas fa-chevron-right"></i></div></div>`;}).join('')}
       ${!mr.length?'<div class="card-body"><div class="empty-state" style="padding:20px"><p>No records this month</p></div></div>':''}
-    </div>`;
+    </div>
+    ${(()=>{const tr=A.trainings.filter(t=>t.date&&t.date.startsWith(mo)&&t.status==='scheduled');return tr.length?`<div class="card"><div class="card-header">Upcoming Training (${tr.length})</div>${tr.slice(0,5).map(t=>{let atts=[];try{atts=JSON.parse(t.attendees||'[]');}catch(e){}const c=t.client_id?A.clients.find(x=>x.id===t.client_id):null;return`<div class="card-row" data-et="${t.id}"><div><div class="label">${t.title}</div><div style="font-size:12px;color:var(--text-tertiary)">${fmtDate(t.date)}${t.start_time?' · '+t.start_time:''} · ${atts.length} attendee${atts.length!==1?'s':''}</div></div><div class="value">${t.cost?'<span style="font-weight:600;color:var(--orange)">$'+parseFloat(t.cost).toFixed(0)+'</span>':'<span style="color:var(--text-tertiary)">Free</span>'}<i class="fas fa-chevron-right"></i></div></div>`;}).join('')}</div>`:'';})()}`;
 }
 
 function pgClients() {
@@ -852,6 +593,44 @@ function pgRecords() {
     <div style="text-align:center;padding:16px"><button class="btn btn-secondary btn-small" id="btn-exp-rec" style="display:inline-block"><i class="fas fa-file-export"></i> Export to Excel</button></div>`;
 }
 
+function pgTraining() {
+  const mo=A.month, fl=A.trainings.filter(t=>t.date&&t.date.startsWith(mo));
+  const upcoming=fl.filter(t=>t.status==='scheduled'), completed=fl.filter(t=>t.status==='completed'), cancelled=fl.filter(t=>t.status==='cancelled');
+  const totalCost=fl.reduce((s,t)=>s+(parseFloat(t.cost)||0),0);
+  const totalMins=fl.filter(t=>t.status!=='cancelled').reduce((s,t)=>s+(t.duration_minutes||0),0);
+  const totalAttendees=fl.filter(t=>t.status!=='cancelled').reduce((s,t)=>{try{const a=JSON.parse(t.attendees||'[]');return s+a.length;}catch(e){return s;}},0);
+  return `<div class="form-group"><input type="month" class="form-input" id="train-month" value="${mo}" style="text-align:center"></div>
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px">
+      <div class="stat-card accent"><div class="stat-label">Sessions</div><div class="stat-value">${fl.length}</div><div class="stat-sub">${upcoming.length} upcoming</div></div>
+      <div class="stat-card green"><div class="stat-label">Total Time</div><div class="stat-value">${totalMins>=60?Math.floor(totalMins/60)+'h':totalMins+'m'}</div><div class="stat-sub">${totalMins} min</div></div>
+      <div class="stat-card orange"><div class="stat-label">Total Cost</div><div class="stat-value">$${totalCost.toFixed(0)}</div><div class="stat-sub">${totalAttendees} attendees</div></div>
+    </div>
+    ${!fl.length?'<div class="empty-state"><i class="fas fa-chalkboard-teacher"></i><h3>No Training Sessions</h3><p>Tap + to schedule a training session</p></div>':''}
+    ${upcoming.length?`<div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Scheduled (${upcoming.length})</div>`:''}
+    ${upcoming.map(t=>renderTrainingCard(t)).join('')}
+    ${completed.length?`<div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px">Completed (${completed.length})</div>`:''}
+    ${completed.map(t=>renderTrainingCard(t)).join('')}
+    ${cancelled.length?`<div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px">Cancelled (${cancelled.length})</div>`:''}
+    ${cancelled.map(t=>renderTrainingCard(t)).join('')}`;
+}
+
+function renderTrainingCard(t) {
+  const c=t.client_id?A.clients.find(x=>x.id===t.client_id):null;
+  let atts=[]; try{atts=JSON.parse(t.attendees||'[]');}catch(e){}
+  const sc=t.status==='completed'?'green':t.status==='cancelled'?'red':'blue';
+  const costStr=t.cost!=null&&t.cost!==''?`$${parseFloat(t.cost).toFixed(2)}`:'Free';
+  return `<div class="record-item" data-et="${t.id}">
+    <div class="record-top"><div>
+      <div class="record-date">${t.title||'Untitled Session'}</div>
+      <div class="record-details">${fmtDate(t.date)}${t.start_time?' · '+t.start_time:''}${t.end_time?' — '+t.end_time:''}</div>
+      ${c?`<div class="record-code"><i class="fas fa-user" style="font-size:11px"></i> ${c.name}</div>`:''}
+      <div class="record-details">${t.duration_minutes||0} min · ${atts.length} attendee${atts.length!==1?'s':''}</div>
+    </div><div style="text-align:right">
+      <div style="font-size:15px;font-weight:700;color:${t.cost?'var(--orange)':'var(--text-tertiary)'}">${costStr}</div>
+      <span class="badge badge-${sc}" style="margin-top:4px">${t.status||'scheduled'}</span>
+    </div></div></div>`;
+}
+
 function pgSettings() {
   return `<div class="card"><div class="card-header">Account</div>
       <div class="card-row" style="cursor:default"><div class="label"><i class="fas fa-user" style="width:20px;color:var(--accent)"></i> ${A.user.name}</div><div class="value">${A.user.email}</div></div></div>
@@ -859,7 +638,6 @@ function pgSettings() {
       <div class="card-row" style="cursor:default"><div class="label"><i class="fas fa-cloud" style="width:20px;color:var(--green)"></i> Supabase Connected</div><div class="value"><span class="sync-indicator"><span class="sync-dot ${A.sync}"></span>${A.sync==='online'?'Synced':'Offline'}</span></div></div>
       <div class="card-row" id="btn-chg-db"><div class="label"><i class="fas fa-database" style="width:20px;color:var(--purple)"></i> Change Database</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
     <div class="card"><div class="card-header">Data Management</div>
-      <div class="card-row" id="btn-print-set"><div class="label"><i class="fas fa-print" style="width:20px;color:var(--red)"></i> Print Records (PDF)</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-imp-xl"><div class="label"><i class="fas fa-file-import" style="width:20px;color:var(--green)"></i> Import from Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-exp-xl"><div class="label"><i class="fas fa-file-export" style="width:20px;color:var(--accent)"></i> Export to Excel</div><div class="value"><i class="fas fa-chevron-right"></i></div></div>
       <div class="card-row" id="btn-exp-all"><div class="label"><i class="fas fa-download" style="width:20px;color:var(--purple)"></i> Export All (JSON Backup)</div><div class="value"><i class="fas fa-chevron-right"></i></div></div></div>
@@ -973,6 +751,72 @@ function showClientDetail(cid) {
   m.querySelectorAll('[data-er]').forEach(el=>el.onclick=()=>{const rec=A.records.find(r=>r.id===el.dataset.er);if(rec){m.remove();showRecordModal(rec);}});
 }
 
+function showTrainingModal(t) {
+  const ed=!!t, today=new Date().toISOString().split('T')[0];
+  let existingAttendees=[]; try{existingAttendees=JSON.parse(t?.attendees||'[]');}catch(e){}
+  const html=`<div class="form-group"><label class="form-label">Session Title *</label><input type="text" class="form-input" id="f-ttitle" value="${t?.title||''}" placeholder="e.g., RBT Supervision, Parent Training"></div>
+    <div class="form-group"><label class="form-label">Date *</label><input type="date" class="form-input" id="f-tdate" value="${t?.date||today}"></div>
+    <div class="form-group"><label class="form-label">Client (Optional)</label><select class="form-select" id="f-tcli"><option value="">No specific client</option>${A.clients.map(c=>`<option value="${c.id}" ${t?.client_id===c.id?'selected':''}>${c.name}</option>`).join('')}</select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label class="form-label">Start Time</label><input type="time" class="form-input" id="f-tst" value="${t?.start_time||''}"></div>
+      <div class="form-group"><label class="form-label">End Time</label><input type="time" class="form-input" id="f-tet" value="${t?.end_time||''}"></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label class="form-label">Duration (min)</label><input type="number" class="form-input" id="f-tdur" value="${t?.duration_minutes||''}" min="0" placeholder="Auto"></div>
+      <div class="form-group"><label class="form-label">Cost ($)</label><input type="number" class="form-input" id="f-tcost" value="${t?.cost!=null&&t?.cost!==''?t.cost:''}" min="0" step="0.01" placeholder="Optional"></div></div>
+    <div class="form-group"><label class="form-label">Location</label><select class="form-select" id="f-tloc">${['Office','Clinic','Home','Community','Virtual','Other'].map(l=>`<option value="${l}" ${t?.location===l?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Status</label><select class="form-select" id="f-tstat">${['scheduled','completed','cancelled'].map(s=>`<option value="${s}" ${t?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Attendees</label>
+      <div id="t-att-list" style="margin-bottom:8px">${existingAttendees.map((a,i)=>`<span class="file-tag"><i class="fas fa-user" style="font-size:11px"></i> ${a}<button data-rai="${i}"><i class="fas fa-times"></i></button></span>`).join('')}</div>
+      <div style="display:flex;gap:8px"><input type="text" class="form-input" id="f-tatt" placeholder="Attendee name" style="flex:1"><button class="btn btn-secondary btn-small" id="btn-add-att" type="button">Add</button></div></div>
+    <div class="form-group"><label class="form-label">Subject / Notes</label><textarea class="form-textarea" id="f-tnotes" placeholder="Training subject, objectives, materials...">${t?.notes||''}</textarea></div>
+    ${ed?'<button class="btn btn-danger" id="btn-del-t" style="margin-top:8px">Delete Training Session</button>':''}`;
+
+  const m=showModal(ed?'Edit Training':'New Training',html,async(ov)=>{
+    const title=ov.querySelector('#f-ttitle').value.trim();
+    if(!title) throw new Error('Session title required');
+    const dt=ov.querySelector('#f-tdate').value;
+    if(!dt) throw new Error('Date required');
+    const attendeesList=ov._attendees||[];
+    const costVal=ov.querySelector('#f-tcost').value;
+    await saveTraining({
+      id:t?.id, title, date:dt,
+      clientId:ov.querySelector('#f-tcli').value||null,
+      startTime:ov.querySelector('#f-tst').value,
+      endTime:ov.querySelector('#f-tet').value,
+      durationMinutes:+ov.querySelector('#f-tdur').value||0,
+      cost:costVal!==''?parseFloat(costVal):null,
+      attendees:attendeesList, location:ov.querySelector('#f-tloc').value,
+      status:ov.querySelector('#f-tstat').value,
+      notes:ov.querySelector('#f-tnotes').value.trim(),
+      created_at:t?.created_at
+    });
+    toast(ed?'Training updated':'Training scheduled');
+  });
+
+  // Attendee management
+  let attendees=[...existingAttendees];
+  m._attendees=attendees;
+  function refreshAttList(){
+    m._attendees=attendees;
+    const el=m.querySelector('#t-att-list');
+    el.innerHTML=attendees.map((a,i)=>`<span class="file-tag"><i class="fas fa-user" style="font-size:11px"></i> ${a}<button data-rai="${i}"><i class="fas fa-times"></i></button></span>`).join('');
+    el.querySelectorAll('[data-rai]').forEach(b=>b.onclick=e=>{e.stopPropagation();attendees.splice(+b.dataset.rai,1);refreshAttList();});
+  }
+  m.querySelector('#btn-add-att')?.addEventListener('click',()=>{
+    const inp=m.querySelector('#f-tatt'), name=inp.value.trim();
+    if(name){attendees.push(name);inp.value='';refreshAttList();inp.focus();}
+  });
+  m.querySelector('#f-tatt')?.addEventListener('keypress',e=>{if(e.key==='Enter'){e.preventDefault();m.querySelector('#btn-add-att')?.click();}});
+  refreshAttList();
+
+  // Auto-calc duration from times
+  const tst=m.querySelector('#f-tst'),tet=m.querySelector('#f-tet'),tdur=m.querySelector('#f-tdur');
+  function acDur(){const v=minsFromTimes(tst.value,tet.value);if(v>0){tdur.value=v;}}
+  tst.onchange=acDur; tet.onchange=acDur;
+
+  if(ed) m.querySelector('#btn-del-t')?.addEventListener('click',async()=>{if(confirm('Delete training session?')){await deleteTraining(t.id);m.remove();toast('Training deleted');render();}});
+}
+
 // ==========================================
 // EVENT BINDING
 // ==========================================
@@ -992,9 +836,9 @@ function bind() {
     if(!e||!p){err.innerHTML='<div class="auth-error">Fill in all fields</div>';return;}
     if(p.length<6){err.innerHTML='<div class="auth-error">Password min 6 chars</div>';return;}
     try{
-      if(A.authMode==='register'){if(!n){err.innerHTML='<div class="auth-error">Enter your name</div>';return;}await doSignUp(e,p,n);}
+      if(A.authMode==='register'){if(!n){err.innerHTML='<div class="auth-error">Enter your name</div>';return;}const r=await doSignUp(e,p,n);if(r?.needsConfirm){err.innerHTML='<div class="auth-success"><i class="fas fa-check-circle"></i> Account created! Check email to confirm, then sign in.</div>';A.authMode='login';return;}}
       else await doSignIn(e,p);
-      await loadClients();await loadRecords();render();
+      await loadClients();await loadRecords();await loadTrainings();render();
     }catch(er){err.innerHTML=`<div class="auth-error">${er.message}</div>`;}
   });
   document.getElementById('btn-reset')?.addEventListener('click',async()=>{
@@ -1017,15 +861,17 @@ function bind() {
   // Buttons
   document.getElementById('btn-add-client')?.addEventListener('click',()=>showClientModal());
   document.getElementById('btn-add-record')?.addEventListener('click',()=>showRecordModal());
+  document.getElementById('btn-add-training')?.addEventListener('click',()=>showTrainingModal());
   document.getElementById('btn-export')?.addEventListener('click',exportXL);
-  document.getElementById('btn-print')?.addEventListener('click',showPrintModal);
   document.getElementById('btn-exp-rec')?.addEventListener('click',exportXL);
   // View/edit
   document.querySelectorAll('[data-vc]').forEach(el=>el.onclick=()=>showClientDetail(el.dataset.vc));
   document.querySelectorAll('[data-er]').forEach(el=>el.onclick=()=>{const r=A.records.find(x=>x.id===el.dataset.er);if(r)showRecordModal(r);});
+  document.querySelectorAll('[data-et]').forEach(el=>el.onclick=()=>{const t=A.trainings.find(x=>x.id===el.dataset.et);if(t)showTrainingModal(t);});
+  // Training month picker
+  document.getElementById('train-month')?.addEventListener('change',e=>{A.month=e.target.value;render();});
   // Settings
   document.getElementById('btn-imp-xl')?.addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='.xlsx,.xls,.csv';i.onchange=e=>{if(e.target.files[0])importXL(e.target.files[0]);};i.click();});
-  document.getElementById('btn-print-set')?.addEventListener('click',showPrintModal);
   document.getElementById('btn-exp-xl')?.addEventListener('click',exportXL);
   document.getElementById('btn-exp-all')?.addEventListener('click',exportAll);
   document.getElementById('btn-chg-db')?.addEventListener('click',()=>{sb=null;render();});
@@ -1041,12 +887,12 @@ async function init() {
   loadSBConfig();
   if(sbOk()){
     const ok=await checkSession();
-    if(ok){await loadClients();await loadRecords();}
+    if(ok){await loadClients();await loadRecords();await loadTrainings();}
   }
   render();
   if(sbOk()) sb.auth.onAuthStateChange(async(ev,sess)=>{
-    if(ev==='SIGNED_IN'&&sess?.user){A.user={id:sess.user.id,email:sess.user.email,name:sess.user.user_metadata?.full_name||sess.user.email.split('@')[0]};await loadClients();await loadRecords();render();}
-    else if(ev==='SIGNED_OUT'){A.user=null;A.clients=[];A.records=[];render();}
+    if(ev==='SIGNED_IN'&&sess?.user){A.user={id:sess.user.id,email:sess.user.email,name:sess.user.user_metadata?.full_name||sess.user.email.split('@')[0]};await loadClients();await loadRecords();await loadTrainings();render();}
+    else if(ev==='SIGNED_OUT'){A.user=null;A.clients=[];A.records=[];A.trainings=[];render();}
   });
 }
 init();
